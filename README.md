@@ -1,5 +1,8 @@
 # お気に入りショートカット
 
+[![Download](https://img.shields.io/github/v/release/YamaPiFIT/FavoriteShortcut?label=%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89&style=for-the-badge)](https://github.com/YamaPiFIT/FavoriteShortcut/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
+
 Windows 用の「お気に入り管理 + ランチャー」アプリです。
 Web サイト・フォルダ・ファイルへのショートカットをフォルダとタグで整理し、
 **どのアプリを使っていても `Ctrl + Space` → 検索 → `Enter` の 3 ステップで開ける**ことを目的にしています。
@@ -93,11 +96,29 @@ Web サイト・フォルダ・ファイルへのショートカットをフォ�
 
 ---
 
+## ダウンロード
+
+**[→ 最新版をダウンロード](https://github.com/YamaPiFIT/FavoriteShortcut/releases/latest)**
+
+| ファイル | 内容 | .NET のインストール |
+|---|---|---|
+| `FavoriteShortcut.exe` | これ 1 つで動きます（約 68 MB） | **不要** |
+| `FavoriteShortcut-portable.zip` | 上記 + README をまとめた ZIP | **不要** |
+
+どちらも中身は同じです。EXE を直接落とすほうが手軽ですが、ブラウザによっては
+警告が出るので、その場合は ZIP のほうをご利用ください。
+
+> **初回起動時に「WindowsによってPCが保護されました」と表示されます。**
+> 個人で作成した未署名のアプリのため出るもので、
+> **詳細情報** → **実行** で起動できます。
+
+---
+
 ## セットアップ（利用者向け）
 
-### 方法 1: ZIP を展開して使う（インストール不要・推奨）
+### 方法 1: ダウンロードして実行する（インストール不要・推奨）
 
-1. `FavoriteShortcut-portable.zip` を任意の場所に展開します
+1. 上記からダウンロードします（ZIP の場合は任意の場所に展開）
 2. `FavoriteShortcut.exe` をダブルクリックします
 
 登録したデータは **EXE と同じ場所に作られる `Data` フォルダ**に保存されます。
@@ -524,6 +545,15 @@ URL / パス一致          200-260
 
 ---
 
-## ライセンス / 作者
+## ライセンス
 
-個人利用を想定した内製アプリです。
+[MIT License](LICENSE) です。改変・再配布・商用利用のいずれも自由に行えます。
+
+このアプリに同梱している第三者ソフトウェア（.NET ランタイム、SQLite など）の
+ライセンス表記は [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) にまとめています。
+いずれも MIT / Apache-2.0 / パブリックドメインで、再配布に制限はありません。
+
+### 免責
+
+本ソフトウェアは「現状のまま」提供されます。利用によって生じたいかなる損害についても
+作者は責任を負いません。登録データは定期的にエクスポートしてバックアップすることをおすすめします。

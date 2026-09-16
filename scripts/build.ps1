@@ -126,8 +126,10 @@ Copy-Item (Join-Path $portableSource '*') $stage -Recurse -Force
 # データは EXE と同じ場所の Data フォルダに作られるので、
 # この ZIP を展開したフォルダごとコピーすれば別PCへそのまま持ち運べる。
 
-$readme = Join-Path $root 'README.md'
-if (Test-Path $readme) { Copy-Item $readme $stage -Force }
+foreach ($doc in @('README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
+    $docPath = Join-Path $root $doc
+    if (Test-Path $docPath) { Copy-Item $docPath $stage -Force }
+}
 
 $zipPath = Join-Path $buildDir 'FavoriteShortcut-portable.zip'
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
