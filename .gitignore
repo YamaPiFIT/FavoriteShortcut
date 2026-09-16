@@ -1,0 +1,22 @@
+# ビルド成果物
+bin/
+obj/
+build/
+installer/*.exe
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# アプリが実行時に作るデータ（EXE と同じ場所の Data フォルダ）
+**/Data/favorite-shortcuts.sqlite*
+**/Data/icons/
+**/Data/backup/
+**/Data/app.log*
+
+# OS
+Thumbs.db
+desktop.ini

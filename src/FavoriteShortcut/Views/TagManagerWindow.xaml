@@ -1,0 +1,77 @@
+<Window x:Class="FavoriteShortcut.Views.TagManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="タグの管理" Height="500" Width="430"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        FontFamily="{DynamicResource UiFontFamily}">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="登録されているタグ" Style="{StaticResource SectionHeaderText}" />
+
+        <Grid Grid.Row="1" Margin="0,0,0,10">
+            <TextBox x:Name="FilterBox" Padding="10,6" TextChanged="OnFilterChanged" />
+            <TextBlock x:Name="FilterPlaceholder" Margin="12,0,0,0" VerticalAlignment="Center"
+                       IsHitTestVisible="False" Foreground="{DynamicResource TextDisabledBrush}"
+                       Text="タグを絞り込む..." />
+        </Grid>
+
+        <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6">
+            <ListBox x:Name="TagList" BorderThickness="0" Background="Transparent" Margin="4"
+                     MouseDoubleClick="OnRename">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="4,3">
+                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding CountText}" HorizontalAlignment="Right"
+                                       VerticalAlignment="Center" Style="{StaticResource CaptionText}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="8,5" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="Bd" Background="Transparent" CornerRadius="5"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background"
+                                                    Value="{DynamicResource SurfaceHoverBrush}" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Bd" Property="Background"
+                                                    Value="{DynamicResource AccentSoftBrush}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+            </ListBox>
+        </Border>
+
+        <Grid Grid.Row="3" Margin="0,14,0,0">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="名前変更" Style="{StaticResource SecondaryButton}" Click="OnRename" MinWidth="92" />
+                <Button Content="削除" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                        Click="OnDelete" MinWidth="92" />
+            </StackPanel>
+            <Button Content="閉じる" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Right"
+                    IsCancel="True" MinWidth="92" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,46 @@
+<Window x:Class="FavoriteShortcut.Views.FolderPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:FavoriteShortcut.Models"
+        Title="移動先フォルダの選択" Height="440" Width="400"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        FontFamily="{DynamicResource UiFontFamily}">
+    <Window.Resources>
+        <HierarchicalDataTemplate DataType="{x:Type models:FolderItem}" ItemsSource="{Binding Children}">
+            <StackPanel Orientation="Horizontal" Margin="0,2">
+                <TextBlock Text="📁" Margin="0,0,7,0" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+            </StackPanel>
+        </HierarchicalDataTemplate>
+        <DataTemplate DataType="{x:Type models:SpecialFolderNode}">
+            <StackPanel Orientation="Horizontal" Margin="0,2">
+                <TextBlock Text="{Binding Glyph}" Margin="0,0,7,0" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="移動先のフォルダを選んでください" Style="{StaticResource SectionHeaderText}" />
+
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="6">
+            <TreeView x:Name="Tree" BorderThickness="0" Background="Transparent"
+                      SelectedItemChanged="OnSelectionChanged"
+                      MouseDoubleClick="OnDoubleClick" />
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="キャンセル" Style="{StaticResource SecondaryButton}" IsCancel="True" MinWidth="92" />
+            <Button x:Name="OkButton" Content="移動" Style="{StaticResource PrimaryButton}"
+                    Margin="8,0,0,0" MinWidth="92" Click="OnOk" />
+        </StackPanel>
+    </Grid>
+</Window>

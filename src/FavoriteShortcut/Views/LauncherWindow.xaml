@@ -1,0 +1,127 @@
+<Window x:Class="FavoriteShortcut.Views.LauncherWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ランチャー"
+        Width="660" SizeToContent="Height"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize"
+        FontFamily="{DynamicResource UiFontFamily}"
+        Deactivated="OnDeactivated">
+
+    <Border Margin="18" CornerRadius="14"
+            Background="{DynamicResource HeaderBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderStrongBrush}" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="32" ShadowDepth="6" Opacity="0.4" Color="Black" />
+        </Border.Effect>
+
+        <StackPanel>
+            <!-- 検索欄 -->
+            <Grid Margin="18,16,18,12">
+                <TextBox x:Name="QueryBox" FontSize="19" Padding="34,8,8,8"
+                         BorderThickness="0" Background="Transparent"
+                         TextChanged="OnQueryChanged" PreviewKeyDown="OnQueryKeyDown" />
+                <TextBlock Text="🔍" FontSize="17" VerticalAlignment="Center" Margin="4,0,0,0"
+                           IsHitTestVisible="False" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <TextBlock x:Name="QueryPlaceholder" FontSize="19" VerticalAlignment="Center"
+                           Margin="34,0,0,0" IsHitTestVisible="False"
+                           Foreground="{DynamicResource TextDisabledBrush}"
+                           Text="検索してEnterで起動" />
+            </Grid>
+
+            <Border Height="1" Background="{DynamicResource BorderBrush}" />
+
+            <!-- 結果 -->
+            <TextBlock x:Name="ResultHeader" Margin="20,10,20,0" Style="{StaticResource SectionHeaderText}" />
+
+            <ListBox x:Name="ResultList" Background="Transparent" BorderThickness="0"
+                     Margin="8,4,8,8" MaxHeight="430"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     PreviewMouseLeftButtonUp="OnResultClick"
+                     PreviewMouseRightButtonDown="OnResultRightClick">
+                <ListBox.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="開く" Click="OnMenuOpen" />
+                        <MenuItem Header="編集..." Click="OnMenuEdit" />
+                        <MenuItem Header="URL / パスをコピー" Click="OnMenuCopy" />
+                        <MenuItem Header="保存先フォルダを開く" Click="OnMenuReveal" />
+                        <Separator />
+                        <MenuItem Header="削除" Click="OnMenuDelete" />
+                    </ContextMenu>
+                </ListBox.ContextMenu>
+
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="10,8" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="Bd" Background="Transparent" CornerRadius="8"
+                                            Margin="4,1" Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background"
+                                                    Value="{DynamicResource SurfaceHoverBrush}" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Bd" Property="Background"
+                                                    Value="{DynamicResource AccentSoftBrush}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <Image Grid.Column="0" Source="{Binding Icon}" Width="26" Height="26"
+                                   Stretch="Uniform" VerticalAlignment="Center" Margin="2,0,14,0"
+                                   RenderOptions.BitmapScalingMode="HighQuality" />
+
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding DisplayTitle}" FontSize="14" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Target}" Style="{StaticResource CaptionText}"
+                                           TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="14,0,4,0"
+                                        MaxWidth="220">
+                                <TextBlock Text="{Binding TagsText}" Style="{StaticResource CaptionText}"
+                                           TextAlignment="Right" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding FolderPathText}" Style="{StaticResource CaptionText}"
+                                           TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <TextBlock x:Name="NoResultText" Margin="20,4,20,18" Visibility="Collapsed"
+                       Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
+
+            <Border Background="{DynamicResource SidebarBackgroundBrush}" CornerRadius="0,0,13,13"
+                    Padding="18,7">
+                <Grid>
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               Text="↑↓ 選択　Enter 起動　Esc 閉じる" />
+                    <TextBlock x:Name="FooterRight" Style="{StaticResource CaptionText}"
+                               HorizontalAlignment="Right" />
+                </Grid>
+            </Border>
+        </StackPanel>
+    </Border>
+</Window>
