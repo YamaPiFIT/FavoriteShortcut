@@ -36,7 +36,7 @@ public sealed class SettingsService
         s.MinimizeToTray = GetBool(raw, "minimize_to_tray", s.MinimizeToTray);
         s.StartMinimized = GetBool(raw, "start_minimized", s.StartMinimized);
         s.RunAtStartup = GetBool(raw, "run_at_startup", s.RunAtStartup);
-        s.UseFaviconFallbackService = GetBool(raw, "favicon_fallback", s.UseFaviconFallbackService);
+        s.UseBrowserIconCache = GetBool(raw, "browser_icon_cache", s.UseBrowserIconCache);
         s.ShowRecentInLauncher = GetBool(raw, "launcher_show_recent", s.ShowRecentInLauncher);
         s.LauncherMaxResults = Math.Clamp(GetInt(raw, "launcher_max_results", s.LauncherMaxResults), 3, 50);
         s.RestoreLastFolder = GetBool(raw, "restore_last_folder", s.RestoreLastFolder);
@@ -60,7 +60,7 @@ public sealed class SettingsService
             ["minimize_to_tray"] = settings.MinimizeToTray ? "1" : "0",
             ["start_minimized"] = settings.StartMinimized ? "1" : "0",
             ["run_at_startup"] = settings.RunAtStartup ? "1" : "0",
-            ["favicon_fallback"] = settings.UseFaviconFallbackService ? "1" : "0",
+            ["browser_icon_cache"] = settings.UseBrowserIconCache ? "1" : "0",
             ["launcher_show_recent"] = settings.ShowRecentInLauncher ? "1" : "0",
             ["launcher_max_results"] = settings.LauncherMaxResults.ToString(CultureInfo.InvariantCulture),
             ["restore_last_folder"] = settings.RestoreLastFolder ? "1" : "0",

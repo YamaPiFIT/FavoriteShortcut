@@ -37,8 +37,11 @@ public sealed class AppSettings
     /// <summary>Windows ログオン時に自動起動するか。</summary>
     public bool RunAtStartup { get; set; }
 
-    /// <summary>favicon をサイトから取得できなかったとき、外部アイコンサービスに問い合わせるか。</summary>
-    public bool UseFaviconFallbackService { get; set; }
+    /// <summary>
+    /// ブラウザ（Chrome / Edge / Firefox など）が保存しているアイコンキャッシュを参照するか。
+    /// 通信を伴わず、認証が必要な社内サイトのアイコンも表示できる。
+    /// </summary>
+    public bool UseBrowserIconCache { get; set; } = true;
 
     /// <summary>ランチャーで検索語が空のときに最近使った項目を出すか。</summary>
     public bool ShowRecentInLauncher { get; set; } = true;

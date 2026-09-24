@@ -47,7 +47,8 @@ public partial class SettingsWindow : Window
         MinimizeToTrayCheck.IsChecked = s.MinimizeToTray;
         StartMinimizedCheck.IsChecked = s.StartMinimized;
         RestoreFolderCheck.IsChecked = s.RestoreLastFolder;
-        FaviconFallbackCheck.IsChecked = s.UseFaviconFallbackService;
+        BrowserIconCacheCheck.IsChecked = s.UseBrowserIconCache;
+        BrowserIconCacheDetected.Text = DescribeDetectedBrowsers();
 
         RunAtStartupCheck.IsChecked = StartupService.IsEnabled();
         StartupStatus.Text = "EXE を別の場所へ移動した場合は、自動起動をいったんオフにしてから入れ直してください。";
@@ -174,6 +175,15 @@ public partial class SettingsWindow : Window
 
     // ------------------------------------------------------------- アイコン
 
+    /// <summary>この PC で参照できるブラウザを表示する（設定の効果を分かりやすくするため）。</summary>
+    private static string DescribeDetectedBrowsers()
+    {
+        var browsers = BrowserFaviconCache.DetectAvailableBrowsers();
+        return browsers.Count == 0
+            ? "このPCでは対象のブラウザが見つかりませんでした。"
+            : "見つかったブラウザ: " + string.Join("、", browsers);
+    }
+
     private void OnCleanIcons(object sender, RoutedEventArgs e)
     {
         var removed = _app.Icons.CleanUpUnusedIcons();
@@ -234,7 +244,7 @@ public partial class SettingsWindow : Window
         s.MinimizeToTray = MinimizeToTrayCheck.IsChecked == true;
         s.StartMinimized = StartMinimizedCheck.IsChecked == true;
         s.RestoreLastFolder = RestoreFolderCheck.IsChecked == true;
-        s.UseFaviconFallbackService = FaviconFallbackCheck.IsChecked == true;
+        s.UseBrowserIconCache = BrowserIconCacheCheck.IsChecked == true;
         s.RunAtStartup = RunAtStartupCheck.IsChecked == true;
 
         _settings.Save(s);

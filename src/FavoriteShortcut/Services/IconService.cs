@@ -14,7 +14,8 @@ namespace FavoriteShortcut.Services;
 /// <summary>
 /// ショートカットのアイコン解決（§11, §22, §34）。
 ///
-///   Web        : サイトの favicon を取得して icons/ にキャッシュ。取れなければ既定アイコン。
+///   Web        : サイトから直接取得 → ブラウザのアイコンキャッシュ の順に試し、
+///                icons/ にキャッシュする。取れなければ既定アイコン。
 ///   フォルダ   : Windows のフォルダアイコン
 ///   ファイル   : 関連付けられたアプリのアイコン
 ///   カスタム   : ユーザーが指定した画像を icons/ にコピー
@@ -22,7 +23,7 @@ namespace FavoriteShortcut.Services;
 /// DB にはバイナリではなく icons/ 配下の相対ファイル名だけを保存する。
 /// キャッシュ済みアイコンはオフラインでも表示できる。
 /// </summary>
-public sealed class IconService
+public sealed class IconService : IDisposable
 {
     private static readonly HttpClient Http = CreateHttpClient();
 
@@ -43,12 +44,15 @@ public sealed class IconService
     private readonly ConcurrentDictionary<string, byte> _failed = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly SemaphoreSlim _throttle = new(4, 4);
+    private readonly BrowserFaviconCache _browserCache = new();
 
     public IconService(AppStore store, SettingsService settings)
     {
         _store = store;
         _settings = settings;
     }
+
+    public void Dispose() => _browserCache.Dispose();
 
     private static HttpClient CreateHttpClient()
     {
@@ -197,7 +201,16 @@ public sealed class IconService
             await _throttle.WaitAsync().ConfigureAwait(false);
             try
             {
-                var saved = await DownloadFaviconAsync(pageUri, fileBase).ConfigureAwait(false);
+                // サイトから直接取得したものを優先し、ブラウザのキャッシュは補助に回す。
+                //
+                // ブラウザはダークモード用のアイコン（白抜きなど）を保存していることがあり、
+                // それを採用すると明るい背景で見えなくなる。サイトが配信している既定の
+                // favicon のほうが確実なので、取得できるならそちらを使う。
+                // ブラウザのキャッシュは、bot 対策や認証で直接取得できないサイト
+                // （社内サイトなど）を救うための経路。
+                var saved = await DownloadFaviconAsync(pageUri, fileBase).ConfigureAwait(false)
+                            ?? TryBrowserCache(pageUri, fileBase);
+
                 if (saved is null)
                 {
                     _failed[origin] = 0;
@@ -241,12 +254,160 @@ public sealed class IconService
         }
     }
 
+    /// <summary>ブラウザのアイコンキャッシュから取り出して icons/ に保存する。</summary>
+    private string? TryBrowserCache(Uri pageUri, string fileBase)
+    {
+        if (!_settings.Current.UseBrowserIconCache) return null;
+
+        try
+        {
+            var found = _browserCache.TryFind(pageUri);
+            if (found is null) return null;
+
+            // ブラウザはダークモード用の白いアイコンを保存していることがある。
+            // 現在のテーマの背景に埋もれて「アイコンが無い」ように見えるものは採用しない。
+            if (IsInvisibleOnCurrentTheme(found.Data))
+            {
+                AppLog.Info($"背景に埋もれるアイコンのため採用しませんでした: {pageUri.Host}");
+                return null;
+            }
+
+            var saved = SaveIconBytes(found.Data, fileBase);
+            if (saved is not null)
+                AppLog.Info($"{found.BrowserName} のアイコンキャッシュから取得しました: {pageUri.Host}");
+
+            return saved;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"ブラウザのアイコンキャッシュから取得できませんでした: {pageUri.Host}", ex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 現在のテーマの背景に埋もれて見えないアイコンかどうか。
+    ///
+    /// ブラウザはサイトのダークモード用アイコン（白一色の抜き文字など）を
+    /// 保存していることがあり、そのまま使うと明るい背景では何も見えなくなる。
+    /// そうしたものは採用せず、既定アイコンを出したほうが分かりやすい。
+    /// </summary>
+    private bool IsInvisibleOnCurrentTheme(byte[] data)
+    {
+        try
+        {
+            var dark = _settings.Current.Theme == AppTheme.Dark;
+
+            using var stream = new MemoryStream(data);
+            var decoder = BitmapDecoder.Create(
+                stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            if (decoder.Frames.Count == 0) return false;
+
+            var frame = decoder.Frames[0];
+            var converted = new FormatConvertedBitmap(frame, PixelFormats.Bgra32, null, 0);
+
+            var width = converted.PixelWidth;
+            var height = converted.PixelHeight;
+            if (width <= 0 || height <= 0) return false;
+
+            var stride = width * 4;
+            var pixels = new byte[stride * height];
+            converted.CopyPixels(pixels, stride, 0);
+
+            var visible = 0;
+            var matchesBackground = 0;
+
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                var alpha = pixels[i + 3];
+                if (alpha < 40) continue; // ほぼ透明な画素は無視
+
+                visible++;
+
+                // 輝度（おおよその知覚値）
+                var luminance = (0.299 * pixels[i + 2] + 0.587 * pixels[i + 1] + 0.114 * pixels[i]) / 255.0;
+                if (dark ? luminance < 0.12 : luminance > 0.90) matchesBackground++;
+            }
+
+            // 不透明な画素がほとんど無い、または残り全部が背景と同化している
+            if (visible < width * height * 0.02) return true;
+            return matchesBackground >= visible * 0.97;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("アイコンの明るさを判定できませんでした。", ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 起動したショートカットのアイコンを、少し待ってから取り直す。
+    ///
+    /// ブラウザでサイトを開くと favicon がブラウザ側にキャッシュされるため、
+    /// 「一度開けばアイコンが付く」という動きになる（§34 の取得できない場合の補完）。
+    /// ブラウザが書き込むまでに間があるので、時間をおいて 2 回試す。
+    /// </summary>
+    public void ScheduleRecheckAfterLaunch(ShortcutItem item)
+    {
+        if (item.TargetType != TargetType.Web) return;
+        if (!string.IsNullOrEmpty(item.IconPath)) return;
+        if (!_settings.Current.UseBrowserIconCache) return;
+
+        var origin = TargetResolver.TryGetOrigin(item.Target);
+        if (string.IsNullOrEmpty(origin)) return;
+
+        // 一度失敗していても、ブラウザで開いた後なら取れる可能性があるので再挑戦させる
+        _failed.TryRemove(origin, out _);
+
+        _ = Task.Run(async () =>
+        {
+            foreach (var delay in new[] { 5, 20 })
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(item.IconPath)) return;
+                if (System.Windows.Application.Current is null) return;
+
+                _failed.TryRemove(origin, out _);
+                await EnsureFaviconAsync(item, force: false).ConfigureAwait(false);
+            }
+        });
+    }
+
     private void ApplyIcon(ShortcutItem item, string relativeFileName)
     {
         try { _store.UpdateIconPath(item, relativeFileName); }
         catch (Exception ex) { AppLog.Warn("アイコンパスの保存に失敗しました。", ex); }
 
         item.Icon = LoadFromCache(relativeFileName) ?? DefaultIcons.Web;
+    }
+
+    /// <summary>
+    /// 画像バイト列を icons/ に保存し、相対ファイル名を返す。
+    /// 一時ファイル経由で置き換えるので、途中で失敗しても壊れたファイルが残らない。
+    /// </summary>
+    private static string? SaveIconBytes(byte[] bytes, string fileBase)
+    {
+        var ext = DetectImageExtension(bytes);
+        if (ext is null) return null; // SVG など WPF で描けない形式は諦める
+
+        var fileName = fileBase + ext;
+        var full = FullPath(fileName);
+
+        Directory.CreateDirectory(AppPaths.IconDirectory);
+
+        var temp = full + ".tmp";
+        File.WriteAllBytes(temp, bytes);
+        if (LoadImageFile(temp) is null)
+        {
+            File.Delete(temp);
+            return null;
+        }
+
+        foreach (var old in Directory.EnumerateFiles(AppPaths.IconDirectory, fileBase + ".*"))
+            if (!old.EndsWith(".tmp", StringComparison.Ordinal)) File.Delete(old);
+
+        File.Move(temp, full, overwrite: true);
+        return fileName;
     }
 
     private static string? FindCachedFavicon(string fileBase)
@@ -266,24 +427,9 @@ public sealed class IconService
             var bytes = await TryDownloadAsync(candidate).ConfigureAwait(false);
             if (bytes is null || bytes.Length < 16) continue;
 
-            var ext = DetectImageExtension(bytes);
-            if (ext is null) continue; // SVG など WPF で描けない形式は諦める
-
-            var fileName = fileBase + ext;
-            var full = FullPath(fileName);
             try
             {
-                Directory.CreateDirectory(AppPaths.IconDirectory);
-                // 一時ファイル経由で置き換え、途中で失敗しても壊れたファイルが残らないようにする
-                var temp = full + ".tmp";
-                await File.WriteAllBytesAsync(temp, bytes).ConfigureAwait(false);
-                if (LoadImageFile(temp) is null) { File.Delete(temp); continue; }
-
-                foreach (var old in Directory.EnumerateFiles(AppPaths.IconDirectory, fileBase + ".*"))
-                    if (!old.EndsWith(".tmp", StringComparison.Ordinal)) File.Delete(old);
-
-                File.Move(temp, full, overwrite: true);
-                return fileName;
+                if (SaveIconBytes(bytes, fileBase) is { } fileName) return fileName;
             }
             catch (Exception ex)
             {
@@ -337,20 +483,9 @@ public sealed class IconService
         candidates.Add($"{origin}/favicon.ico");
         candidates.Add($"{origin}/favicon.png");
 
-        // 4. 設定で許可されている場合のみ外部サービス。
-        //    社内・ローカルのホストは、外部から到達できないうえにホスト名が漏れるため除外する。
-        if (_settings.Current.UseFaviconFallbackService)
-        {
-            if (TargetResolver.IsPrivateOrIntranetHost(pageUri.Host))
-            {
-                AppLog.Info($"社内・ローカルのホストのため、外部アイコンサービスへは問い合わせません: {pageUri.Host}");
-            }
-            else
-            {
-                candidates.Add(
-                    $"https://www.google.com/s2/favicons?sz=64&domain={Uri.EscapeDataString(pageUri.Host)}");
-            }
-        }
+        // 外部のアイコン取得サービスには問い合わせない。
+        // 取得できないサイトはブラウザのキャッシュ側で拾えるため、
+        // 利用者が登録した相手以外へ通信しない作りにしている。
 
         return candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }

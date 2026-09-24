@@ -140,10 +140,12 @@
                 <TextBlock Text="アイコン" Style="{StaticResource SectionHeaderText}" />
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <CheckBox x:Name="FaviconFallbackCheck"
-                                  Content="サイトから favicon を取得できないとき、外部のアイコン取得サービスを使う" />
+                        <CheckBox x:Name="BrowserIconCacheCheck"
+                                  Content="ブラウザが保存しているアイコンを利用する" />
                         <TextBlock Style="{StaticResource CaptionText}" Margin="25,4,0,0" TextWrapping="Wrap"
-                                   Text="有効にすると、取得できなかったサイトのドメイン名が Google のアイコンサービスへ送信されます。既定では無効です。" />
+                                   Text="Chrome / Edge / Brave / Firefox などが保存済みのアイコンを読み取ります。通信は行わず、登録済みの URL だけを検索します。認証が必要な社内サイトや、直接取得できないサイトのアイコンも表示できます。" />
+                        <TextBlock x:Name="BrowserIconCacheDetected" Style="{StaticResource CaptionText}"
+                                   Margin="25,6,0,0" TextWrapping="Wrap" />
 
                         <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                             <Button Content="未使用のアイコンを整理" Style="{StaticResource SecondaryButton}"

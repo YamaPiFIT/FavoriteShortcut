@@ -270,6 +270,7 @@ public partial class App : Application
             }
 
             HotKeys?.Dispose();
+            Icons?.Dispose();
             Store?.Dispose();
         }
         catch (Exception ex)

@@ -484,6 +484,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (result.Success)
             {
                 _store.RecordUsage(item);
+
+                // ブラウザで開くと favicon がブラウザ側にキャッシュされるので、
+                // 少し待ってから取り直す（一度開けばアイコンが付く）
+                _icons.ScheduleRecheckAfterLaunch(item);
             }
             else
             {

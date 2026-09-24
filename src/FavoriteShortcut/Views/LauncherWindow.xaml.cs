@@ -257,6 +257,7 @@ public partial class LauncherWindow : Window
         if (result.Success)
         {
             _store.RecordUsage(item);
+            _icons.ScheduleRecheckAfterLaunch(item);
             return;
         }
 

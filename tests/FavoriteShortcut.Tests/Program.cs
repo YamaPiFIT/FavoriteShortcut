@@ -26,6 +26,7 @@ public static class Program
         try
         {
             TargetResolverTests();
+            BrowserFaviconCacheTests();
             TextNormalizerTests();
             StoreTests();
             SearchTests();
@@ -108,34 +109,132 @@ public static class Program
             AssertTrue(
                 TargetResolver.TryGetOrigin("https://intranet:8443/") != TargetResolver.TryGetOrigin("https://intranet/"),
                 "オリジンが異なる"));
+    }
 
-        // ここが漏れると社内ホスト名が外部サービスへ送信されてしまう
-        Test("社内・ローカルのホストを外部サービスの対象から除外する", () =>
+    // --------------------------------------------- ブラウザのアイコンキャッシュ
+
+    /// <summary>
+    /// ブラウザが保存している favicon を読み出せるかを、実際の PC のブラウザではなく
+    /// 同じスキーマの検証用データベースを組み立てて確認する。
+    /// （利用者の閲覧データには一切触れない）
+    /// </summary>
+    private static void BrowserFaviconCacheTests()
+    {
+        Group("ブラウザのアイコンキャッシュ読み取り");
+
+        var png = MinimalPng();
+
+        // ---- Chromium 系（Chrome / Edge / Brave / Vivaldi / Opera）----
+        var chromiumPath = Path.Combine(AppPaths.DataDirectory, "Favicons");
+        using (var con = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={chromiumPath}"))
         {
-            foreach (var host in new[]
-                     {
-                         "portal", "fileserver",                        // 単一ラベル名
-                         "portal.corp.local", "app.internal", "nas.lan", // 社内向けサフィックス
-                         "10.0.0.5", "172.16.3.9", "192.168.1.10",      // プライベート IPv4
-                         "127.0.0.1", "169.254.10.1",                   // ループバック / リンクローカル
-                         "::1", "fd12:3456::1",                         // IPv6 ループバック / ULA
-                     })
-            {
-                AssertTrue(TargetResolver.IsPrivateOrIntranetHost(host), $"{host} は社内扱いであるべき");
-            }
+            con.Open();
+            Exec(con,
+                "CREATE TABLE favicons (id INTEGER PRIMARY KEY, url LONGVARCHAR, icon_type INTEGER);" +
+                "CREATE TABLE favicon_bitmaps (id INTEGER PRIMARY KEY, icon_id INTEGER, last_updated INTEGER," +
+                " image_data BLOB, width INTEGER, height INTEGER, last_requested INTEGER);" +
+                "CREATE TABLE icon_mapping (id INTEGER PRIMARY KEY, page_url LONGVARCHAR, icon_id INTEGER," +
+                " page_url_type INTEGER);");
+
+            InsertChromium(con, 1, "https://intranet/kintai/index.aspx", png, 32);
+            InsertChromium(con, 2, "https://intranet/kintai/index.aspx", png, 64);   // 64px を選ぶべき
+            InsertChromium(con, 3, "https://other.example.com/", png, 64);
+            InsertChromium(con, 4, "http://portal/", png, 16);
+            InsertChromium(con, 5, "https://svgonly.example.com/", Svg(), 64);       // SVG は採用しない
+        }
+
+        Test("Chromium 系のキャッシュからアイコンを取得できる", () =>
+            AssertTrue(
+                BrowserFaviconCache.ReadChromium(chromiumPath, new Uri("https://intranet/kintai/")) is not null,
+                "取得できる"));
+
+        Test("サイト内の別ページに紐づくアイコンでも拾える", () =>
+            AssertTrue(
+                BrowserFaviconCache.ReadChromium(chromiumPath, new Uri("https://intranet/")) is not null,
+                "オリジン前方一致"));
+
+        Test("http と https を取り違えない", () =>
+        {
+            AssertTrue(BrowserFaviconCache.ReadChromium(chromiumPath, new Uri("http://portal/")) is not null,
+                "http は見つかる");
+            AssertTrue(BrowserFaviconCache.ReadChromium(chromiumPath, new Uri("https://portal/")) is null,
+                "https は見つからない");
         });
 
-        Test("公開ドメインは外部サービスの対象に含める", () =>
-        {
-            foreach (var host in new[] { "example.com", "www.google.com", "chatgpt.com", "8.8.8.8", "github.com" })
-                AssertTrue(!TargetResolver.IsPrivateOrIntranetHost(host), $"{host} は公開扱いであるべき");
-        });
+        Test("登録のないサイトでは null を返す", () =>
+            AssertTrue(
+                BrowserFaviconCache.ReadChromium(chromiumPath, new Uri("https://notfound.example.org/")) is null,
+                "null"));
 
-        Test("ホスト名が空なら安全側（社内扱い）に倒す", () =>
+        Test("WPF で描けない形式（SVG）は採用しない", () =>
+            AssertTrue(
+                BrowserFaviconCache.ReadChromium(chromiumPath, new Uri("https://svgonly.example.com/")) is null,
+                "SVG を除外"));
+
+        // ---- Firefox ----
+        var firefoxPath = Path.Combine(AppPaths.DataDirectory, "favicons.sqlite");
+        using (var con = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={firefoxPath}"))
         {
-            AssertTrue(TargetResolver.IsPrivateOrIntranetHost(null), "null");
-            AssertTrue(TargetResolver.IsPrivateOrIntranetHost("  "), "空白");
-        });
+            con.Open();
+            Exec(con,
+                "CREATE TABLE moz_icons (id INTEGER PRIMARY KEY, icon_url TEXT, fixed_icon_url_hash INTEGER," +
+                " width INTEGER, root INTEGER, color INTEGER, expire_ms INTEGER, data BLOB);" +
+                "CREATE TABLE moz_pages_w_icons (id INTEGER PRIMARY KEY, page_url TEXT, page_url_hash INTEGER);" +
+                "CREATE TABLE moz_icons_to_pages (page_id INTEGER, icon_id INTEGER, expire_ms INTEGER);");
+
+            Exec(con, "INSERT INTO moz_icons (id, icon_url, width, root, data) VALUES " +
+                      "(1, 'https://groupware.corp.local/favicon.ico', 32, 0, x'" + Hex(png) + "');");
+            Exec(con, "INSERT INTO moz_pages_w_icons (id, page_url) VALUES " +
+                      "(1, 'https://groupware.corp.local/top');");
+            Exec(con, "INSERT INTO moz_icons_to_pages (page_id, icon_id) VALUES (1, 1);");
+
+            // ページとの対応が無く、サイト直下のアイコンだけがあるケース
+            Exec(con, "INSERT INTO moz_icons (id, icon_url, width, root, data) VALUES " +
+                      "(2, 'https://rootonly.example.com/favicon.ico', 32, 1, x'" + Hex(png) + "');");
+        }
+
+        Test("Firefox のキャッシュからアイコンを取得できる", () =>
+            AssertTrue(
+                BrowserFaviconCache.ReadFirefox(firefoxPath, new Uri("https://groupware.corp.local/")) is not null,
+                "取得できる"));
+
+        Test("Firefox のサイト直下アイコンも拾える", () =>
+            AssertTrue(
+                BrowserFaviconCache.ReadFirefox(firefoxPath, new Uri("https://rootonly.example.com/")) is not null,
+                "root アイコン"));
+
+        Test("Firefox でも登録のないサイトでは null を返す", () =>
+            AssertTrue(
+                BrowserFaviconCache.ReadFirefox(firefoxPath, new Uri("https://nope.example.org/")) is null,
+                "null"));
+
+        // "_" は SQL の LIKE で任意の 1 文字に一致する。エスケープを忘れると
+        // "intr_net" のホスト名で "intranet" のアイコンを拾ってしまう。
+        Test("ワイルドカードになりうる文字を含むホスト名で他サイトを巻き込まない", () =>
+            AssertTrue(
+                BrowserFaviconCache.ReadChromium(chromiumPath, new Uri("https://intr_net/")) is null,
+                "LIKE のエスケープ"));
+
+        static void Exec(Microsoft.Data.Sqlite.SqliteConnection con, string sql)
+        {
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.ExecuteNonQuery();
+        }
+
+        static void InsertChromium(
+            Microsoft.Data.Sqlite.SqliteConnection con, int id, string pageUrl, byte[] data, int width)
+        {
+            Exec(con, $"INSERT INTO favicons (id, url, icon_type) VALUES ({id}, 'icon{id}', 1);");
+            Exec(con, "INSERT INTO favicon_bitmaps (id, icon_id, image_data, width, height) VALUES " +
+                      $"({id}, {id}, x'{Hex(data)}', {width}, {width});");
+            Exec(con, $"INSERT INTO icon_mapping (id, page_url, icon_id) VALUES ({id}, '{pageUrl}', {id});");
+        }
+
+        static string Hex(byte[] bytes) => Convert.ToHexString(bytes);
+
+        static byte[] Svg() => System.Text.Encoding.UTF8.GetBytes(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\"></svg>");
     }
 
     // ----------------------------------------------------------- 文字列正規化
