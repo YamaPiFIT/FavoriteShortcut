@@ -127,13 +127,93 @@ public static class TargetResolver
         }
     }
 
-    /// <summary>Web URL からホスト名を取り出す（favicon のキャッシュキー用）。</summary>
-    public static string? TryGetHost(string? target)
+    /// <summary>Web URL を Uri として解釈する。スキームが無い場合だけ https:// を補う。</summary>
+    public static Uri? TryGetUri(string? target)
     {
         var value = (target ?? string.Empty).Trim();
         if (value.Length == 0) return null;
         if (!SchemeRegex.IsMatch(value)) value = "https://" + value;
-        return Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Host.Length > 0 ? uri.Host : null;
+
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Host.Length > 0 ? uri : null;
+    }
+
+    /// <summary>Web URL からホスト名を取り出す。</summary>
+    public static string? TryGetHost(string? target) => TryGetUri(target)?.Host;
+
+    /// <summary>
+    /// スキーム + ホスト + ポートを取り出す（favicon のキャッシュキー用）。
+    ///
+    /// ホスト名だけをキーにすると、http と https、あるいはポート違いの別サイトが
+    /// 同じアイコンを共有してしまうため、オリジン単位で扱う。
+    /// </summary>
+    public static string? TryGetOrigin(string? target)
+    {
+        var uri = TryGetUri(target);
+        if (uri is null) return null;
+
+        return uri.IsDefaultPort
+            ? $"{uri.Scheme}://{uri.Host}"
+            : $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+    }
+
+    /// <summary>
+    /// 社内・ローカルネットワーク上のホストかどうか。
+    ///
+    /// 外部のアイコン取得サービスへ問い合わせてよいかの判定に使う。
+    /// 社内ホスト名を外部へ送ると命名規則や内部構成が漏れるため、
+    /// ここで true になるものは外部サービスの対象から除外する。
+    /// </summary>
+    public static bool IsPrivateOrIntranetHost(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return true;
+
+        host = host.Trim().Trim('[', ']');
+
+        if (System.Net.IPAddress.TryParse(host, out var address))
+            return IsPrivateAddress(address);
+
+        // ドットを含まない単一ラベル名（http://portal/ など）は社内ホストとみなす
+        if (!host.Contains('.')) return true;
+
+        foreach (var suffix in PrivateSuffixes)
+            if (host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return true;
+
+        return false;
+    }
+
+    private static readonly string[] PrivateSuffixes =
+    {
+        ".local", ".localhost", ".localdomain", ".internal", ".intranet",
+        ".corp", ".lan", ".home", ".home.arpa", ".private",
+        ".test", ".example", ".invalid",
+    };
+
+    private static bool IsPrivateAddress(System.Net.IPAddress address)
+    {
+        if (System.Net.IPAddress.IsLoopback(address)) return true;
+
+        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            var b = address.GetAddressBytes();
+            return b[0] switch
+            {
+                10 => true,                                  // 10.0.0.0/8
+                127 => true,                                 // 127.0.0.0/8
+                169 when b[1] == 254 => true,                // 169.254.0.0/16 リンクローカル
+                172 when b[1] >= 16 && b[1] <= 31 => true,   // 172.16.0.0/12
+                192 when b[1] == 168 => true,                // 192.168.0.0/16
+                _ => false,
+            };
+        }
+
+        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal) return true;
+            // fc00::/7 ユニークローカルアドレス
+            return (address.GetAddressBytes()[0] & 0xFE) == 0xFC;
+        }
+
+        return false;
     }
 
     /// <summary>環境変数を展開した実際のパス（Web の場合はそのまま）。</summary>

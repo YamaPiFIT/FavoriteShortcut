@@ -168,10 +168,15 @@ public sealed class IconService
     {
         if (item.TargetType != TargetType.Web) return;
 
-        var host = TargetResolver.TryGetHost(item.Target);
-        if (string.IsNullOrEmpty(host)) return;
+        var pageUri = TargetResolver.TryGetUri(item.Target);
+        if (pageUri is null) return;
+        if (pageUri.Scheme != Uri.UriSchemeHttp && pageUri.Scheme != Uri.UriSchemeHttps) return;
 
-        var fileBase = "fav_" + Hash(host);
+        // http と https、ポート違いは別サイトなのでオリジン単位でキャッシュする
+        var origin = TargetResolver.TryGetOrigin(item.Target);
+        if (string.IsNullOrEmpty(origin)) return;
+
+        var fileBase = "fav_" + Hash(origin);
 
         if (!force)
         {
@@ -182,20 +187,20 @@ public sealed class IconService
                 ApplyIcon(item, existing);
                 return;
             }
-            if (_failed.ContainsKey(host)) return;
+            if (_failed.ContainsKey(origin)) return;
         }
 
-        if (!_inFlight.TryAdd(host, 0)) return;
+        if (!_inFlight.TryAdd(origin, 0)) return;
 
         try
         {
             await _throttle.WaitAsync().ConfigureAwait(false);
             try
             {
-                var saved = await DownloadFaviconAsync(host, fileBase).ConfigureAwait(false);
+                var saved = await DownloadFaviconAsync(pageUri, fileBase).ConfigureAwait(false);
                 if (saved is null)
                 {
-                    _failed[host] = 0;
+                    _failed[origin] = 0;
                     return;
                 }
 
@@ -207,14 +212,14 @@ public sealed class IconService
                     _memoryCache.TryRemove(saved, out _);
                     ApplyIcon(item, saved);
 
-                    // 同じホストの他のショートカットにも反映する
+                    // 同じオリジンの他のショートカットにも反映する
                     foreach (var other in _store.Shortcuts)
                     {
                         if (ReferenceEquals(other, item)) continue;
                         if (other.TargetType != TargetType.Web) continue;
                         if (!string.IsNullOrEmpty(other.IconPath) && !other.IconPath.StartsWith("fav_", StringComparison.Ordinal))
                             continue;
-                        if (!string.Equals(TargetResolver.TryGetHost(other.Target), host, StringComparison.OrdinalIgnoreCase))
+                        if (!string.Equals(TargetResolver.TryGetOrigin(other.Target), origin, StringComparison.OrdinalIgnoreCase))
                             continue;
                         ApplyIcon(other, saved);
                     }
@@ -227,12 +232,12 @@ public sealed class IconService
         }
         catch (Exception ex)
         {
-            AppLog.Warn($"favicon の取得に失敗: {host}", ex);
-            _failed[host] = 0;
+            AppLog.Warn($"favicon の取得に失敗: {origin}", ex);
+            _failed[origin] = 0;
         }
         finally
         {
-            _inFlight.TryRemove(host, out _);
+            _inFlight.TryRemove(origin, out _);
         }
     }
 
@@ -254,9 +259,9 @@ public sealed class IconService
         return null;
     }
 
-    private async Task<string?> DownloadFaviconAsync(string host, string fileBase)
+    private async Task<string?> DownloadFaviconAsync(Uri pageUri, string fileBase)
     {
-        foreach (var candidate in await CollectCandidateUrlsAsync(host).ConfigureAwait(false))
+        foreach (var candidate in await CollectCandidateUrlsAsync(pageUri).ConfigureAwait(false))
         {
             var bytes = await TryDownloadAsync(candidate).ConfigureAwait(false);
             if (bytes is null || bytes.Length < 16) continue;
@@ -282,43 +287,85 @@ public sealed class IconService
             }
             catch (Exception ex)
             {
-                AppLog.Warn($"favicon の保存に失敗: {host}", ex);
+                AppLog.Warn($"favicon の保存に失敗: {pageUri}", ex);
             }
         }
 
         return null;
     }
 
-    private async Task<List<string>> CollectCandidateUrlsAsync(string host)
+    /// <summary>
+    /// favicon の取得先候補を、登録された URL を起点に組み立てる。
+    ///
+    /// ホスト名だけから "https://host/" を作り直すと、http のみのサイト・
+    /// 非標準ポート・サブパスに置かれた社内システムを軒並み取りこぼすため、
+    /// 登録された URL のスキーム・ポート・パスをそのまま尊重する。
+    /// </summary>
+    private async Task<List<string>> CollectCandidateUrlsAsync(Uri pageUri)
     {
         var candidates = new List<string>();
+        var origin = pageUri.IsDefaultPort
+            ? $"{pageUri.Scheme}://{pageUri.Host}"
+            : $"{pageUri.Scheme}://{pageUri.Host}:{pageUri.Port}";
 
-        // 1. HTML の <link rel="icon"> を見る
+        // 1. 登録された URL の HTML から <link rel="icon"> を探す
         try
         {
-            using var response = await Http.GetAsync($"https://{host}/", HttpCompletionOption.ResponseHeadersRead)
+            using var response = await Http.GetAsync(pageUri, HttpCompletionOption.ResponseHeadersRead)
                 .ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
             {
-                var baseUri = response.RequestMessage?.RequestUri ?? new Uri($"https://{host}/");
+                var baseUri = response.RequestMessage?.RequestUri ?? pageUri;
                 var html = await ReadLimitedStringAsync(response, 256 * 1024).ConfigureAwait(false);
                 candidates.AddRange(ExtractIconUrls(html, baseUri));
             }
         }
         catch (Exception ex)
         {
-            AppLog.Warn($"HTML の取得に失敗: {host}", ex);
+            AppLog.Warn($"HTML の取得に失敗: {pageUri}", ex);
         }
 
-        // 2. 定番の場所
-        candidates.Add($"https://{host}/favicon.ico");
-        candidates.Add($"https://{host}/favicon.png");
+        // 2. サブパスに置かれたアプリ（例 https://intranet/kintai/）の直下
+        var directory = GetDirectoryUrl(pageUri);
+        if (directory is not null && !string.Equals(directory, origin + "/", StringComparison.OrdinalIgnoreCase))
+        {
+            candidates.Add(directory + "favicon.ico");
+            candidates.Add(directory + "favicon.png");
+        }
 
-        // 3. 設定で許可されている場合のみ外部サービス（ドメイン名が外部に送信されるため既定はオフ）
+        // 3. サイトのルート（定番の場所）
+        candidates.Add($"{origin}/favicon.ico");
+        candidates.Add($"{origin}/favicon.png");
+
+        // 4. 設定で許可されている場合のみ外部サービス。
+        //    社内・ローカルのホストは、外部から到達できないうえにホスト名が漏れるため除外する。
         if (_settings.Current.UseFaviconFallbackService)
-            candidates.Add($"https://www.google.com/s2/favicons?sz=64&domain={Uri.EscapeDataString(host)}");
+        {
+            if (TargetResolver.IsPrivateOrIntranetHost(pageUri.Host))
+            {
+                AppLog.Info($"社内・ローカルのホストのため、外部アイコンサービスへは問い合わせません: {pageUri.Host}");
+            }
+            else
+            {
+                candidates.Add(
+                    $"https://www.google.com/s2/favicons?sz=64&domain={Uri.EscapeDataString(pageUri.Host)}");
+            }
+        }
 
         return candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>"https://host/app/page.aspx" → "https://host/app/"</summary>
+    private static string? GetDirectoryUrl(Uri uri)
+    {
+        var path = uri.AbsolutePath;
+        if (path.Length == 0) return null;
+
+        var lastSlash = path.LastIndexOf('/');
+        if (lastSlash < 0) return null;
+
+        var authority = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        return $"{uri.Scheme}://{authority}{path[..(lastSlash + 1)]}";
     }
 
     internal static List<string> ExtractIconUrls(string html, Uri baseUri)

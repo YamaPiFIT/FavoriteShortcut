@@ -89,6 +89,53 @@ public static class Program
 
         Test("存在しないパスは Exists が false", () =>
             AssertTrue(!TargetResolver.Exists(@"C:\test\sample.xlsx", TargetType.File), "Exists"));
+
+        Group("favicon 取得のためのURL解釈（社内サイト対応）");
+
+        Test("スキームとポートを保持したオリジンを取り出せる", () =>
+        {
+            AssertEqual("https://example.com", TargetResolver.TryGetOrigin("https://example.com/a/b"), "既定ポート");
+            AssertEqual("http://portal", TargetResolver.TryGetOrigin("http://portal/"), "http 単一ラベル");
+            AssertEqual("https://intranet:8443", TargetResolver.TryGetOrigin("https://intranet:8443/app/"), "非標準ポート");
+        });
+
+        Test("http と https は別サイトとして扱う", () =>
+            AssertTrue(
+                TargetResolver.TryGetOrigin("http://portal/") != TargetResolver.TryGetOrigin("https://portal/"),
+                "オリジンが異なる"));
+
+        Test("ポート違いも別サイトとして扱う", () =>
+            AssertTrue(
+                TargetResolver.TryGetOrigin("https://intranet:8443/") != TargetResolver.TryGetOrigin("https://intranet/"),
+                "オリジンが異なる"));
+
+        // ここが漏れると社内ホスト名が外部サービスへ送信されてしまう
+        Test("社内・ローカルのホストを外部サービスの対象から除外する", () =>
+        {
+            foreach (var host in new[]
+                     {
+                         "portal", "fileserver",                        // 単一ラベル名
+                         "portal.corp.local", "app.internal", "nas.lan", // 社内向けサフィックス
+                         "10.0.0.5", "172.16.3.9", "192.168.1.10",      // プライベート IPv4
+                         "127.0.0.1", "169.254.10.1",                   // ループバック / リンクローカル
+                         "::1", "fd12:3456::1",                         // IPv6 ループバック / ULA
+                     })
+            {
+                AssertTrue(TargetResolver.IsPrivateOrIntranetHost(host), $"{host} は社内扱いであるべき");
+            }
+        });
+
+        Test("公開ドメインは外部サービスの対象に含める", () =>
+        {
+            foreach (var host in new[] { "example.com", "www.google.com", "chatgpt.com", "8.8.8.8", "github.com" })
+                AssertTrue(!TargetResolver.IsPrivateOrIntranetHost(host), $"{host} は公開扱いであるべき");
+        });
+
+        Test("ホスト名が空なら安全側（社内扱い）に倒す", () =>
+        {
+            AssertTrue(TargetResolver.IsPrivateOrIntranetHost(null), "null");
+            AssertTrue(TargetResolver.IsPrivateOrIntranetHost("  "), "空白");
+        });
     }
 
     // ----------------------------------------------------------- 文字列正規化
