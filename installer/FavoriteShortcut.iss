@@ -9,7 +9,7 @@
 ; 生成物: installer\FavoriteShortcut-Setup.exe
 
 #define AppName "お気に入りショートカット"
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 #define AppExeName "FavoriteShortcut.exe"
 #define SourceDir "..\build\self-contained"
 
