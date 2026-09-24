@@ -26,6 +26,7 @@ public static class Program
         try
         {
             TargetResolverTests();
+            BookmarkReaderTests();
             BrowserFaviconCacheTests();
             TextNormalizerTests();
             StoreTests();
@@ -109,6 +110,137 @@ public static class Program
             AssertTrue(
                 TargetResolver.TryGetOrigin("https://intranet:8443/") != TargetResolver.TryGetOrigin("https://intranet/"),
                 "オリジンが異なる"));
+    }
+
+    // ------------------------------------------- ブラウザのお気に入り取り込み
+
+    /// <summary>
+    /// Edge / Chrome のお気に入り（Bookmarks ファイル）を読めるかを、
+    /// 実際のブラウザではなく同じ形式の検証用ファイルを組み立てて確認する。
+    /// （利用者のブックマークには一切触れない）
+    /// </summary>
+    private static void BookmarkReaderTests()
+    {
+        Group("ブラウザのお気に入り読み取り（Edge / Chrome）");
+
+        // Chromium の date_added は 1601-01-01 からのマイクロ秒
+        var added = (new DateTime(2024, 5, 1, 12, 0, 0, DateTimeKind.Utc).ToFileTimeUtc() / 10)
+            .ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        var json = $$"""
+        {
+          "checksum": "dummy",
+          "version": 1,
+          "roots": {
+            "other": {
+              "type": "folder", "name": "その他のブックマーク", "date_added": "{{added}}",
+              "children": [
+                { "type": "url", "name": "社内ポータル", "url": "http://portal/", "date_added": "{{added}}" }
+              ]
+            },
+            "bookmark_bar": {
+              "type": "folder", "name": "ブックマーク バー", "date_added": "{{added}}",
+              "children": [
+                { "type": "url", "name": "GitHub", "url": "https://github.com/", "date_added": "{{added}}" },
+                { "type": "url", "name": "ブックマークレット", "url": "javascript:alert(1)" },
+                { "type": "url", "name": "設定", "url": "chrome://settings" },
+                { "type": "url", "name": "内部ページ", "url": "edge://favorites" },
+                { "type": "url", "name": "", "url": "https://noname.example.com/" },
+                {
+                  "type": "folder", "name": "開発", "date_added": "{{added}}",
+                  "children": [
+                    { "type": "url", "name": "MDN", "url": "https://developer.mozilla.org/" },
+                    {
+                      "type": "folder", "name": "参考", "children": [
+                        { "type": "url", "name": "RFC", "url": "https://www.rfc-editor.org/" }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "synced": { "type": "folder", "name": "モバイルのブックマーク", "children": [] }
+          }
+        }
+        """;
+
+        var path = Path.Combine(AppPaths.DataDirectory, "Bookmarks");
+        File.WriteAllText(path, json, System.Text.Encoding.UTF8);
+
+        var roots = BrowserBookmarkReader.ReadRoots(path);
+
+        Test("最上位フォルダを ブックマークバー → その他 → モバイル の順で返す", () =>
+        {
+            AssertEqual(3, roots.Count, "最上位フォルダ数");
+            AssertEqual("ブックマーク バー", roots[0].Name, "1番目");
+            AssertEqual("その他のブックマーク", roots[1].Name, "2番目");
+            AssertEqual("モバイルのブックマーク", roots[2].Name, "3番目");
+        });
+
+        Test("入れ子のフォルダをたどってリンク数を数えられる", () =>
+        {
+            // GitHub + 名前なし + MDN + RFC = 4（javascript: / chrome:// / edge:// は除外）
+            AssertEqual(4, roots[0].LinkCount, "ブックマークバーのリンク数");
+            AssertEqual(2, roots[0].FolderCount, "配下のフォルダ数（開発・参考）");
+            AssertEqual(1, roots[1].LinkCount, "その他のリンク数");
+            AssertEqual(0, roots[2].LinkCount, "空フォルダ");
+        });
+
+        Test("ブックマークレット（javascript:）を取り込まない", () =>
+            AssertTrue(!Flatten(roots).Any(n => n.Url!.StartsWith("javascript:")), "除外されている"));
+
+        Test("ブラウザ内部ページ（chrome:// / edge://）を取り込まない", () =>
+            AssertTrue(!Flatten(roots).Any(n =>
+                n.Url!.StartsWith("chrome://") || n.Url.StartsWith("edge://")), "除外されている"));
+
+        Test("名前のないブックマークは URL をタイトルにする", () =>
+            AssertTrue(Flatten(roots).Any(n => n.Name == "https://noname.example.com/"), "URL で代用"));
+
+        Test("階層の深い項目まで読み取れる", () =>
+            AssertTrue(Flatten(roots).Any(n => n.Name == "RFC"), "2段下の項目"));
+
+        Test("追加日時を復元できる", () =>
+        {
+            var github = Flatten(roots).First(n => n.Name == "GitHub");
+            AssertTrue(github.AddedAt is not null, "日時あり");
+            AssertEqual(2024, github.AddedAt!.Value.Year, "年");
+            AssertEqual(5, github.AddedAt.Value.Month, "月");
+        });
+
+        Test("http のみの社内サイトもそのまま読み取れる", () =>
+            AssertTrue(Flatten(roots).Any(n => n.Url == "http://portal/"), "http を保持"));
+
+        Test("壊れた JSON は例外として扱う（取り込みを中断できる）", () =>
+        {
+            var brokenPath = Path.Combine(AppPaths.DataDirectory, "BrokenBookmarks");
+            File.WriteAllText(brokenPath, "{ これは JSON ではありません", System.Text.Encoding.UTF8);
+
+            var threw = false;
+            try { BrowserBookmarkReader.ReadRoots(brokenPath); }
+            catch (System.Text.Json.JsonException) { threw = true; }
+
+            AssertTrue(threw, "例外が投げられる");
+        });
+
+        Test("roots が無いファイルでも落ちずに空を返す", () =>
+        {
+            var emptyPath = Path.Combine(AppPaths.DataDirectory, "EmptyBookmarks");
+            File.WriteAllText(emptyPath, "{ \"version\": 1 }", System.Text.Encoding.UTF8);
+
+            AssertEqual(0, BrowserBookmarkReader.ReadRoots(emptyPath).Count, "空のリスト");
+        });
+
+        static List<BookmarkNode> Flatten(List<BookmarkNode> nodes)
+        {
+            var result = new List<BookmarkNode>();
+            void Walk(BookmarkNode node)
+            {
+                if (!node.IsFolder) { result.Add(node); return; }
+                foreach (var child in node.Children) Walk(child);
+            }
+            foreach (var node in nodes) Walk(node);
+            return result;
+        }
     }
 
     // --------------------------------------------- ブラウザのアイコンキャッシュ

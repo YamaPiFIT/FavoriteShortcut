@@ -253,6 +253,8 @@
                             <ContextMenu x:Name="AppMenu">
                                 <MenuItem Header="設定..." Click="OnOpenSettings" />
                                 <Separator />
+                                <MenuItem Header="ブラウザのお気に入りを取り込む..." Click="OnImportBookmarks" />
+                                <Separator />
                                 <MenuItem Header="エクスポート（ZIP に保存）..." Click="OnExport" />
                                 <MenuItem Header="インポート（ZIP から取り込み）..." Click="OnImport" />
                                 <Separator />

@@ -1,0 +1,100 @@
+<Window x:Class="FavoriteShortcut.Views.BookmarkImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ブラウザのお気に入りを取り込む"
+        Width="600" Height="640" MinWidth="520" MinHeight="520"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        FontFamily="{DynamicResource UiFontFamily}">
+
+    <Grid Margin="20,18,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 取り込み元 -->
+        <TextBlock Grid.Row="0" Text="取り込み元のブラウザ" Style="{StaticResource SectionHeaderText}" />
+        <ComboBox x:Name="ProfileCombo" Grid.Row="1" SelectionChanged="OnProfileChanged" />
+
+        <!-- 取り込む範囲 -->
+        <Grid Grid.Row="2" Margin="0,16,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Margin="0,0,0,6">
+                <TextBlock Text="取り込む範囲" Style="{StaticResource SectionHeaderText}" Margin="0"
+                           VerticalAlignment="Center" />
+                <TextBlock x:Name="SummaryText" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Style="{StaticResource CaptionText}" />
+            </Grid>
+
+            <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="8"
+                    Padding="8">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="RootList" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- 取り込み先 -->
+        <StackPanel Grid.Row="3" Margin="0,16,0,0">
+            <TextBlock Text="取り込み先" Style="{StaticResource SectionHeaderText}" />
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <RadioButton x:Name="NewFolderOption" Grid.Column="0" GroupName="Destination" IsChecked="True"
+                             Content="新しいフォルダを作る" VerticalAlignment="Center" Margin="0,0,12,0"
+                             Checked="OnDestinationChanged" />
+                <TextBox x:Name="NewFolderNameBox" Grid.Column="1" VerticalAlignment="Center" />
+            </Grid>
+
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <RadioButton x:Name="ExistingFolderOption" Grid.Column="0" GroupName="Destination"
+                             Content="既存のフォルダへ" VerticalAlignment="Center" Margin="0,0,12,0"
+                             Checked="OnDestinationChanged" />
+                <ComboBox x:Name="FolderCombo" Grid.Column="1" IsEnabled="False" />
+            </Grid>
+        </StackPanel>
+
+        <!-- オプション -->
+        <StackPanel Grid.Row="4" Margin="0,14,0,0">
+            <CheckBox x:Name="KeepStructureCheck" IsChecked="True"
+                      Content="ブラウザのフォルダ構成を再現する" Checked="OnOptionChanged"
+                      Unchecked="OnOptionChanged" />
+            <CheckBox x:Name="SkipDuplicatesCheck" IsChecked="True" Margin="0,10,0,0"
+                      Content="すでに登録済みの URL は取り込まない" Checked="OnOptionChanged"
+                      Unchecked="OnOptionChanged" />
+            <CheckBox x:Name="AddTagCheck" Margin="0,10,0,0"
+                      Content="取り込んだ項目にタグを付ける" Checked="OnOptionChanged"
+                      Unchecked="OnOptionChanged" />
+            <Grid Margin="25,8,0,0">
+                <TextBox x:Name="TagNameBox" IsEnabled="False" Width="200" HorizontalAlignment="Left" />
+            </Grid>
+
+            <TextBlock x:Name="StatusText" Style="{StaticResource CaptionText}" TextWrapping="Wrap"
+                       Margin="0,12,0,0" />
+        </StackPanel>
+
+        <!-- ボタン -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="キャンセル" Style="{StaticResource SecondaryButton}" IsCancel="True" MinWidth="100" />
+            <Button x:Name="ImportButton" Content="取り込む" Style="{StaticResource PrimaryButton}"
+                    Margin="8,0,0,0" MinWidth="100" Click="OnImport" />
+        </StackPanel>
+    </Grid>
+</Window>

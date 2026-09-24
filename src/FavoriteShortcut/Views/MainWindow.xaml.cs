@@ -897,6 +897,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void OnShowLauncher(object sender, RoutedEventArgs e) => _app.ShowLauncher();
 
+    /// <summary>Edge / Chrome などのお気に入りを取り込む。</summary>
+    private void OnImportBookmarks(object sender, RoutedEventArgs e)
+    {
+        var folderId = _scope is FolderItem f ? f.Id : null;
+        var dialog = new BookmarkImportWindow(_store, _icons, folderId) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        BuildFolderTree();
+        SelectScopeInTree();
+        RefreshTagCloud();
+        RefreshList();
+
+        var skipped = dialog.SkippedCount > 0
+            ? $"\n重複のためスキップ: {dialog.SkippedCount} 件"
+            : string.Empty;
+
+        MessageBox.Show(this,
+            $"お気に入りを取り込みました。\n\n" +
+            $"取り込んだショートカット: {dialog.ImportedCount} 件{skipped}\n\n" +
+            "アイコンは順次取得されます。",
+            "取り込み完了", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private void OnExport(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog
