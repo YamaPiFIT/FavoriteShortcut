@@ -1,4 +1,5 @@
 using System.Windows;
+using FavoriteShortcut.Services;
 
 namespace FavoriteShortcut.Views;
 
@@ -12,16 +13,15 @@ public partial class FolderDeleteWindow : Window
     {
         InitializeComponent();
 
-        MessageText.Text = $"「{folderName}」を削除しますか？";
+        MessageText.Text = Loc.T("Str.Common.ConfirmDeleteOne", folderName);
 
         var parts = new List<string>();
-        if (subFolderCount > 0) parts.Add($"サブフォルダ {subFolderCount} 個");
-        if (shortcutCount > 0) parts.Add($"ショートカット {shortcutCount} 件");
+        if (subFolderCount > 0) parts.Add(Loc.T("Str.FolderDelete.SubFolders", subFolderCount));
+        if (shortcutCount > 0) parts.Add(Loc.T("Str.FolderDelete.Shortcuts", shortcutCount));
 
         DetailText.Text = parts.Count == 0
-            ? "このフォルダは空です。この操作は元に戻せません。"
-            : $"このフォルダには {string.Join("、", parts)} が含まれています。" +
-              "サブフォルダは一緒に削除されます。この操作は元に戻せません。";
+            ? Loc.T("Str.FolderDelete.Empty")
+            : Loc.T("Str.FolderDelete.Contains", string.Join(Loc.T("Str.Common.ListSeparator"), parts));
 
         // 中身が無ければ選択肢を出す意味がない
         OptionBox.Visibility = shortcutCount > 0 ? Visibility.Visible : Visibility.Collapsed;

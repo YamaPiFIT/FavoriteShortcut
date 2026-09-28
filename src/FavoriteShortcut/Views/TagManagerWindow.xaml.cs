@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using FavoriteShortcut.Data;
+using FavoriteShortcut.Services;
 
 namespace FavoriteShortcut.Views;
 
@@ -9,7 +10,7 @@ public partial class TagManagerWindow : Window
 {
     public sealed record TagRow(string Name, int Count)
     {
-        public string CountText => $"{Count} 件";
+        public string CountText => Loc.T("Str.Common.CountItems", Count);
     }
 
     private readonly AppStore _store;
@@ -44,7 +45,7 @@ public partial class TagManagerWindow : Window
     {
         if (TagList.SelectedItem is not TagRow row) return;
 
-        var dialog = new TextInputWindow("タグ名の変更", $"「{row.Name}」の新しい名前", row.Name) { Owner = this };
+        var dialog = new TextInputWindow(Loc.T("Str.TagManager.RenameTitle"), Loc.T("Str.TagManager.RenamePrompt", row.Name), row.Name) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
         _store.RenameTag(row.Name, dialog.Value);
@@ -56,9 +57,7 @@ public partial class TagManagerWindow : Window
         if (TagList.SelectedItem is not TagRow row) return;
 
         var answer = MessageBox.Show(this,
-            $"タグ「{row.Name}」を削除しますか？\n\n" +
-            $"{row.Count} 件のショートカットからこのタグが外れます。ショートカット自体は削除されません。",
-            "タグの削除", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+            Loc.T("Str.TagManager.DeleteConfirm", row.Name, row.Count), Loc.T("Str.TagManager.DeleteTitle"), MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK) return;
 
         _store.DeleteTag(row.Name);

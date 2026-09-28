@@ -1,5 +1,6 @@
 using System.IO;
 using Microsoft.Data.Sqlite;
+using FavoriteShortcut.Services;
 
 namespace FavoriteShortcut.Data;
 
@@ -86,8 +87,7 @@ public sealed class Database : IDisposable
         if (version > CurrentSchemaVersion)
         {
             throw new InvalidOperationException(
-                $"データベースのバージョン ({version}) がこのアプリ ({CurrentSchemaVersion}) より新しいため開けません。" +
-                "新しいバージョンのアプリをご使用ください。");
+                Loc.T("Str.Database.TooNew", version, CurrentSchemaVersion));
         }
 
         if (version < 1)

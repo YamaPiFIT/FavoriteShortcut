@@ -9,7 +9,7 @@ public sealed record BookmarkProfile(string BrowserName, string ProfileLabel, st
     /// <summary>一覧に出す表示名。プロファイルが 1 つだけなら括弧は付けない。</summary>
     public string DisplayName => string.IsNullOrEmpty(ProfileLabel)
         ? BrowserName
-        : $"{BrowserName}（{ProfileLabel}）";
+        : Loc.T("Str.Bookmark.ProfileFormat", BrowserName, ProfileLabel);
 
     public override string ToString() => DisplayName;
 }

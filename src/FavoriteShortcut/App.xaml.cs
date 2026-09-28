@@ -55,6 +55,10 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             AppLog.Error("処理されない例外", args.ExceptionObject as Exception);
 
+        // 言語の設定は DB に入っているので、読み込むまでは Windows の表示言語で表示する
+        // （DB を開けなかったときのエラーも、利用者が読める言語で出すため）
+        Loc.Apply(AppLanguage.Auto);
+
         try
         {
             InitializeServices();
@@ -63,9 +67,8 @@ public partial class App : Application
         {
             AppLog.Error("起動処理に失敗しました。", ex);
             MessageBox.Show(
-                "データベースを開けませんでした。\n\n" +
-                $"保存場所: {AppPaths.DataDirectory}\n\n{ex.Message}",
-                "お気に入りショートカット", MessageBoxButton.OK, MessageBoxImage.Error);
+                Loc.T("Str.App.DbOpenFailed", AppPaths.DataDirectory, ex.Message),
+                Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
             return;
         }
@@ -87,6 +90,9 @@ public partial class App : Application
         Icons = new IconService(Store, Settings);
         Transfer = new ExportImportService(Store, Settings);
 
+        Loc.Apply(Settings.Current.Language);
+        Loc.LanguageChanged += OnLanguageChanged;
+
         HookWindowTheme();
         ApplyTheme(Settings.Current.Theme);
 
@@ -106,8 +112,13 @@ public partial class App : Application
     {
         try
         {
-            foreach (var name in new[] { "仕事", "開発", "個人", "その他" })
-                Store.CreateFolder(name, null);
+            // 利用者の言語に合わせた名前で作る（あとから言語を変えても、作ったフォルダ名は変わらない）
+            foreach (var key in new[]
+                     {
+                         "Str.Folder.SeedWork", "Str.Folder.SeedDevelopment",
+                         "Str.Folder.SeedPersonal", "Str.Folder.SeedOther",
+                     })
+                Store.CreateFolder(Loc.T(key), null);
         }
         catch (Exception ex)
         {
@@ -190,18 +201,19 @@ public partial class App : Application
     {
         try
         {
+            // 言語を切り替えたときに文言を差し替えられるよう、項目とキーを対にして持つ
             var menu = new Forms.ContextMenuStrip();
-            menu.Items.Add("管理画面を開く(&O)", null, (_, _) => Dispatcher.Invoke(ShowMainWindow));
-            menu.Items.Add("ランチャーを表示(&L)", null, (_, _) => Dispatcher.Invoke(ShowLauncher));
+            AddTrayItem(menu, "Str.Tray.OpenMain", ShowMainWindow);
+            AddTrayItem(menu, "Str.Tray.ShowLauncher", ShowLauncher);
             menu.Items.Add(new Forms.ToolStripSeparator());
-            menu.Items.Add("設定(&S)", null, (_, _) => Dispatcher.Invoke(OpenSettings));
+            AddTrayItem(menu, "Str.Tray.Settings", OpenSettings);
             menu.Items.Add(new Forms.ToolStripSeparator());
-            menu.Items.Add("終了(&X)", null, (_, _) => Dispatcher.Invoke(ExitApplication));
+            AddTrayItem(menu, "Str.Tray.Exit", ExitApplication);
 
             _tray = new Forms.NotifyIcon
             {
                 Icon = LoadTrayIcon(),
-                Text = "お気に入りショートカット",
+                Text = Loc.T("Str.App.Name"),
                 Visible = true,
                 ContextMenuStrip = menu,
             };
@@ -211,6 +223,26 @@ public partial class App : Application
         {
             AppLog.Warn("タスクトレイアイコンを作成できませんでした。", ex);
         }
+    }
+
+    private readonly List<(Forms.ToolStripItem Item, string Key)> _trayItems = new();
+
+    private void AddTrayItem(Forms.ContextMenuStrip menu, string key, Action action)
+    {
+        var item = menu.Items.Add(Loc.T(key), null, (_, _) => Dispatcher.Invoke(action));
+        _trayItems.Add((item, key));
+    }
+
+    /// <summary>
+    /// 表示言語が変わったときの後始末。XAML は自動で切り替わるので、
+    /// それ以外（トレイのメニュー、「未分類」などデータ側で組み立てる表示）を作り直す。
+    /// </summary>
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        foreach (var (item, key) in _trayItems) item.Text = Loc.T(key);
+        if (_tray is not null) _tray.Text = Loc.T("Str.App.Name");
+
+        Store.RefreshLocalizedTexts();
     }
 
     private static System.Drawing.Icon LoadTrayIcon()
@@ -303,9 +335,8 @@ public partial class App : Application
         AppLog.Error("UIスレッドで処理されない例外が発生しました。", e.Exception);
 
         MessageBox.Show(
-            "予期しないエラーが発生しました。アプリは動作を続けます。\n\n" +
-            $"{e.Exception.Message}\n\n詳細はログをご確認ください:\n{AppPaths.LogFile}",
-            "お気に入りショートカット", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Loc.T("Str.App.UnexpectedError", e.Exception.Message, AppPaths.LogFile),
+            Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
 
         // データは都度 SQLite に保存済みなので、落とさずに続行する
         e.Handled = true;

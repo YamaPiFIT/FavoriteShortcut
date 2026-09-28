@@ -12,14 +12,14 @@ public partial class ImportModeWindow : Window
         InitializeComponent();
 
         SummaryText.Text =
-            $"フォルダ {manifest.FolderCount} 件 / ショートカット {manifest.ShortcutCount} 件 / タグ {manifest.TagCount} 件";
+            Loc.T("Str.ImportMode.Summary", manifest.FolderCount, manifest.ShortcutCount, manifest.TagCount);
 
         var exported = DateTime.TryParse(manifest.ExportedAt, CultureInfo.InvariantCulture,
             DateTimeStyles.RoundtripKind, out var dt)
             ? dt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")
             : manifest.ExportedAt;
 
-        ExportedAtText.Text = $"エクスポート日時: {exported}　/　作成バージョン: {manifest.AppVersion}";
+        ExportedAtText.Text = Loc.T("Str.ImportMode.ExportedAt", exported, manifest.AppVersion);
     }
 
     public ImportMode SelectedMode => ReplaceOption.IsChecked == true ? ImportMode.Replace : ImportMode.Merge;
@@ -29,9 +29,7 @@ public partial class ImportModeWindow : Window
         if (SelectedMode == ImportMode.Replace)
         {
             var answer = MessageBox.Show(this,
-                "現在のフォルダ・ショートカット・タグ・設定をすべて削除して、取り込んだ内容に置き換えます。\n\n" +
-                "よろしいですか？",
-                "置き換えの確認", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+                Loc.T("Str.ImportMode.ReplaceConfirm"), Loc.T("Str.ImportMode.ReplaceConfirmTitle"), MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (answer != MessageBoxResult.OK) return;
         }
 

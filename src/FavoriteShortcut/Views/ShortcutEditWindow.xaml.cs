@@ -58,8 +58,8 @@ public partial class ShortcutEditWindow : Window
 
         if (existing is not null)
         {
-            Title = "ショートカットの編集";
-            SaveButton.Content = "保存";
+            Title = Loc.T("Str.Edit.TitleEdit");
+            SaveButton.Content = Loc.T("Str.Common.Save");
             DeleteButton.Visibility = Visibility.Visible;
 
             TargetBox.Text = existing.Target;
@@ -70,8 +70,8 @@ public partial class ShortcutEditWindow : Window
         }
         else
         {
-            Title = "ショートカットの登録";
-            SaveButton.Content = "登録";
+            Title = Loc.T("Str.Edit.TitleNew");
+            SaveButton.Content = Loc.T("Str.Edit.Add");
             if (!string.IsNullOrWhiteSpace(initialTarget)) TargetBox.Text = initialTarget.Trim();
         }
 
@@ -89,7 +89,7 @@ public partial class ShortcutEditWindow : Window
 
     private void BuildFolderChoices(string? selectedId)
     {
-        var choices = new List<FolderChoice> { new(null, "未分類（フォルダに入れない）") };
+        var choices = new List<FolderChoice> { new(null, Loc.T("Str.Folder.UncategorizedChoice")) };
         choices.AddRange(_store.AllFolders
             .OrderBy(f => f.FullPath, StringComparer.CurrentCulture)
             .Select(f => new FolderChoice(f.Id, f.FullPath)));
@@ -101,7 +101,7 @@ public partial class ShortcutEditWindow : Window
     private void OnNewFolder(object sender, RoutedEventArgs e)
     {
         var parentId = (FolderCombo.SelectedItem as FolderChoice)?.Id;
-        var dialog = new TextInputWindow("新しいフォルダ", "フォルダ名", string.Empty) { Owner = this };
+        var dialog = new TextInputWindow(Loc.T("Str.Folder.NewTitle"), Loc.T("Str.Folder.NameLabel"), string.Empty) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
         var created = _store.CreateFolder(dialog.Value, parentId);
@@ -123,7 +123,7 @@ public partial class ShortcutEditWindow : Window
 
         if (raw.Length == 0)
         {
-            TargetInfoText.Text = "Web の URL、フォルダのパス、ファイルのパスを入力できます。";
+            TargetInfoText.Text = Loc.T("Str.Edit.TargetHint");
             FetchFaviconButton.IsEnabled = false;
             UpdateIconPreview();
             return;
@@ -132,11 +132,11 @@ public partial class ShortcutEditWindow : Window
         var normalized = TargetResolver.Normalize(raw, _detectedType);
         var exists = TargetResolver.Exists(normalized, _detectedType);
 
-        var info = $"種類: {_detectedType.ToDisplayName()}";
+        var info = Loc.T("Str.Edit.TypeInfo", _detectedType.ToDisplayName());
         if (_detectedType == TargetType.Web && !string.Equals(normalized, raw, StringComparison.Ordinal))
-            info += $"　→ 保存時: {normalized}";
+            info += Loc.T("Str.Edit.SavedAs", normalized);
         if (!exists)
-            info += "　⚠ 現在このパスは見つかりません（そのまま登録できます）";
+            info += Loc.T("Str.Edit.PathMissing");
 
         TargetInfoText.Text = info;
         FetchFaviconButton.IsEnabled = _detectedType == TargetType.Web;
@@ -165,13 +165,13 @@ public partial class ShortcutEditWindow : Window
         {
             null => _detectedType switch
             {
-                TargetType.Web => "Web サイトの favicon を自動取得します（取得できない場合は既定アイコン）。",
-                TargetType.Folder => "Windows のフォルダアイコンを表示します。",
-                TargetType.File or TargetType.Application => "ファイルに関連付けられたアイコンを表示します。",
-                _ => "既定のアイコンを表示します。",
+                TargetType.Web => Loc.T("Str.Edit.IconAutoWeb"),
+                TargetType.Folder => Loc.T("Str.Edit.IconAutoFolder"),
+                TargetType.File or TargetType.Application => Loc.T("Str.Edit.IconAutoFile"),
+                _ => Loc.T("Str.Edit.IconAutoDefault"),
             },
-            var p when p.StartsWith("custom_", StringComparison.Ordinal) => "指定した画像を使用します。",
-            _ => "取得済みの favicon を使用します。",
+            var p when p.StartsWith("custom_", StringComparison.Ordinal) => Loc.T("Str.Edit.IconCustom"),
+            _ => Loc.T("Str.Edit.IconCached"),
         };
     }
 
@@ -179,8 +179,8 @@ public partial class ShortcutEditWindow : Window
     {
         var dialog = new OpenFileDialog
         {
-            Title = "アイコンに使う画像を選択",
-            Filter = "画像ファイル (*.png;*.ico;*.jpg;*.jpeg;*.gif;*.bmp)|*.png;*.ico;*.jpg;*.jpeg;*.gif;*.bmp",
+            Title = Loc.T("Str.Edit.ChooseImageTitle"),
+            Filter = Loc.T("Str.Edit.ImageFilter"),
             CheckFileExists = true,
         };
         if (dialog.ShowDialog(this) != true) return;
@@ -188,8 +188,8 @@ public partial class ShortcutEditWindow : Window
         var saved = _icons.ImportCustomIcon(dialog.FileName);
         if (saved is null)
         {
-            MessageBox.Show(this, "この画像は読み込めませんでした。別のファイルをお試しください。",
-                "アイコン", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, Loc.T("Str.Edit.ImageUnreadable"),
+                Loc.T("Str.Edit.Icon"), MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -202,7 +202,7 @@ public partial class ShortcutEditWindow : Window
         var target = TargetResolver.Normalize(TargetBox.Text.Trim(), TargetType.Web);
         if (TargetResolver.TryGetHost(target) is null)
         {
-            MessageBox.Show(this, "URL からサイト名を読み取れませんでした。", "favicon の取得",
+            MessageBox.Show(this, Loc.T("Str.Edit.NoHost"), Loc.T("Str.Edit.FetchFavicon"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -210,24 +210,21 @@ public partial class ShortcutEditWindow : Window
         var probe = new ShortcutItem { Target = target, TargetType = TargetType.Web };
 
         FetchFaviconButton.IsEnabled = false;
-        FetchFaviconButton.Content = "取得中...";
+        FetchFaviconButton.Content = Loc.T("Str.Edit.Fetching");
         try
         {
             await _icons.EnsureFaviconAsync(probe, force: true);
         }
         finally
         {
-            FetchFaviconButton.Content = "favicon を取得";
+            FetchFaviconButton.Content = Loc.T("Str.Edit.FetchFavicon");
             FetchFaviconButton.IsEnabled = true;
         }
 
         if (probe.IconPath is null)
         {
             MessageBox.Show(this,
-                "favicon を取得できませんでした。\n\n" +
-                "サイトが favicon を公開していないか、ネットワークに接続できていない可能性があります。" +
-                "「画像を選択...」から任意の画像を設定することもできます。",
-                "favicon の取得", MessageBoxButton.OK, MessageBoxImage.Information);
+                Loc.T("Str.Edit.FaviconFailed"), Loc.T("Str.Edit.FetchFavicon"), MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -248,8 +245,8 @@ public partial class ShortcutEditWindow : Window
     {
         var dialog = new OpenFileDialog
         {
-            Title = "ファイルを選択",
-            Filter = "すべてのファイル (*.*)|*.*",
+            Title = Loc.T("Str.Edit.ChooseFileTitle"),
+            Filter = Loc.T("Str.Edit.AllFilesFilter"),
             CheckFileExists = true,
         };
         if (dialog.ShowDialog(this) != true) return;
@@ -260,7 +257,7 @@ public partial class ShortcutEditWindow : Window
 
     private void OnBrowseFolder(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFolderDialog { Title = "フォルダを選択" };
+        var dialog = new OpenFolderDialog { Title = Loc.T("Str.Edit.ChooseFolderTitle") };
         if (dialog.ShowDialog(this) != true) return;
 
         TargetBox.Text = dialog.FolderName;
@@ -277,7 +274,7 @@ public partial class ShortcutEditWindow : Window
         var rawTarget = TargetBox.Text.Trim();
         if (rawTarget.Length == 0)
         {
-            ShowError("URL / パスを入力してください。");
+            ShowError(Loc.T("Str.Edit.TargetRequired"));
             TargetBox.Focus();
             return;
         }
@@ -289,7 +286,7 @@ public partial class ShortcutEditWindow : Window
         if (title.Length == 0) title = TargetResolver.SuggestTitle(target, _detectedType);
         if (title.Length == 0)
         {
-            ShowError("タイトルを入力してください。");
+            ShowError(Loc.T("Str.Edit.TitleRequired"));
             TitleBox.Focus();
             return;
         }
@@ -342,7 +339,7 @@ public partial class ShortcutEditWindow : Window
         catch (Exception ex)
         {
             AppLog.Error("ショートカットの保存に失敗しました。", ex);
-            ShowError($"保存できませんでした: {ex.Message}");
+            ShowError(Loc.T("Str.Edit.SaveFailed", ex.Message));
         }
     }
 
@@ -356,9 +353,7 @@ public partial class ShortcutEditWindow : Window
         if (duplicate is null) return true;
 
         var answer = MessageBox.Show(this,
-            $"同じ URL / パスが「{duplicate.DisplayTitle}」（{duplicate.FolderPathText}）に登録されています。\n\n" +
-            "このまま登録しますか？",
-            "重複の確認", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+            Loc.T("Str.Edit.Duplicate", duplicate.DisplayTitle, duplicate.FolderPathText), Loc.T("Str.Edit.DuplicateTitle"), MessageBoxButton.OKCancel, MessageBoxImage.Question);
 
         return answer == MessageBoxResult.OK;
     }
@@ -368,8 +363,8 @@ public partial class ShortcutEditWindow : Window
         if (_original is null) return;
 
         var answer = MessageBox.Show(this,
-            $"「{_original.DisplayTitle}」を削除しますか？\n\nこの操作は元に戻せません。",
-            "削除の確認", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+            Loc.T("Str.Common.ConfirmDeleteOne", _original.DisplayTitle) + "\n\n" + Loc.T("Str.Common.CannotUndo"),
+            Loc.T("Str.Common.ConfirmDeleteTitle"), MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK) return;
 
         _icons.DeleteCustomIcon(_original.IconPath);

@@ -147,12 +147,12 @@ public partial class LauncherWindow : Window
         if (hits is not null)
         {
             items = hits.Select(h => h.Item).ToList();
-            header = $"検索結果（{items.Count} 件）";
+            header = Loc.T("Str.Launcher.Results", items.Count);
         }
         else if (_settings.Current.ShowRecentInLauncher)
         {
             items = SearchService.Recent(_store.Shortcuts, max);
-            header = items.Count > 0 ? "最近使った項目" : string.Empty;
+            header = items.Count > 0 ? Loc.T("Str.Launcher.Recent") : string.Empty;
         }
         else
         {
@@ -177,17 +177,17 @@ public partial class LauncherWindow : Window
         {
             NoResultText.Visibility = Visibility.Visible;
             NoResultText.Text = query.Trim().Length > 0
-                ? "該当するショートカットがありません。タイトル・タグ・フォルダ名・URL / パスが検索対象です。"
+                ? Loc.T("Str.Launcher.NoMatch")
                 : _store.Shortcuts.Count == 0
-                    ? "まだショートカットが登録されていません。管理画面から登録してください。"
-                    : "キーワードを入力してください。";
+                    ? Loc.T("Str.Launcher.NoShortcuts")
+                    : Loc.T("Str.Launcher.TypeKeyword");
         }
         else
         {
             NoResultText.Visibility = Visibility.Collapsed;
         }
 
-        FooterRight.Text = $"全 {_store.Shortcuts.Count} 件";
+        FooterRight.Text = Loc.T("Str.Launcher.Total", _store.Shortcuts.Count);
     }
 
     // ------------------------------------------------------------- キー操作
@@ -262,8 +262,8 @@ public partial class LauncherWindow : Window
         }
 
         MessageBox.Show(
-            $"{result.ErrorTitle}\n\n{result.ErrorDetail}\n\n登録内容はそのまま残っています。",
-            "お気に入りショートカット", MessageBoxButton.OK, MessageBoxImage.Warning);
+            $"{result.ErrorTitle}\n\n{result.ErrorDetail}\n\n{Loc.T("Str.Launch.Kept")}",
+            Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     private void OnResultClick(object sender, MouseButtonEventArgs e)
@@ -313,7 +313,7 @@ public partial class LauncherWindow : Window
         if (!result.Success)
         {
             MessageBox.Show($"{result.ErrorTitle}\n\n{result.ErrorDetail}",
-                "お気に入りショートカット", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -322,8 +322,8 @@ public partial class LauncherWindow : Window
         if (Selected is not { } item) return;
 
         var answer = MessageBox.Show(
-            $"「{item.DisplayTitle}」を削除しますか？\n\nこの操作は元に戻せません。",
-            "削除の確認", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+            Loc.T("Str.Common.ConfirmDeleteOne", item.DisplayTitle) + "\n\n" + Loc.T("Str.Common.CannotUndo"),
+            Loc.T("Str.Common.ConfirmDeleteTitle"), MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK) return;
 
         _icons.DeleteCustomIcon(item.IconPath);

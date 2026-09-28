@@ -121,7 +121,7 @@ public sealed class HotKeyService : IDisposable
 
     public static string Describe(ModifierKeys modifiers, Key key)
     {
-        if (key == Key.None) return "（未設定）";
+        if (key == Key.None) return Loc.T("Str.HotKey.NotSet");
 
         var parts = new List<string>();
         if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");

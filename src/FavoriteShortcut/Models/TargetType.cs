@@ -1,3 +1,4 @@
+using FavoriteShortcut.Services;
 namespace FavoriteShortcut.Models;
 
 /// <summary>
@@ -17,10 +18,10 @@ public static class TargetTypeExtensions
 {
     public static string ToDisplayName(this TargetType type) => type switch
     {
-        TargetType.Web => "Web サイト",
-        TargetType.Folder => "フォルダ",
-        TargetType.File => "ファイル",
-        TargetType.Application => "アプリケーション",
-        _ => "不明",
+        TargetType.Web => Loc.T("Str.Type.Web"),
+        TargetType.Folder => Loc.T("Str.Type.Folder"),
+        TargetType.File => Loc.T("Str.Type.File"),
+        TargetType.Application => Loc.T("Str.Type.Application"),
+        _ => Loc.T("Str.Type.Unknown"),
     };
 }

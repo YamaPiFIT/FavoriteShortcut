@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:FavoriteShortcut.Controls"
-        Title="ショートカットの登録" Width="620" SizeToContent="Height"
+        Title="{DynamicResource Str.Edit.TitleNew}" Width="620" SizeToContent="Height"
         MinWidth="520" MaxHeight="900"
         WindowStartupLocation="CenterOwner" ResizeMode="CanResize" ShowInTaskbar="False"
         Background="{DynamicResource WindowBackgroundBrush}"
@@ -18,7 +18,7 @@
         <StackPanel Grid.Row="0">
 
             <!-- URL / パス -->
-            <TextBlock Text="URL / パス" Style="{StaticResource SectionHeaderText}" />
+            <TextBlock Text="{DynamicResource Str.Edit.Target}" Style="{StaticResource SectionHeaderText}" />
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -27,42 +27,42 @@
                 </Grid.ColumnDefinitions>
                 <TextBox x:Name="TargetBox" Grid.Column="0" FontSize="13.5"
                          TextChanged="OnTargetChanged" />
-                <Button Grid.Column="1" Content="ファイル..." Style="{StaticResource SecondaryButton}"
+                <Button Grid.Column="1" Content="{DynamicResource Str.Edit.BrowseFile}" Style="{StaticResource SecondaryButton}"
                         Margin="8,0,0,0" Click="OnBrowseFile" />
-                <Button Grid.Column="2" Content="フォルダ..." Style="{StaticResource SecondaryButton}"
+                <Button Grid.Column="2" Content="{DynamicResource Str.Edit.BrowseFolder}" Style="{StaticResource SecondaryButton}"
                         Margin="6,0,0,0" Click="OnBrowseFolder" />
             </Grid>
             <TextBlock x:Name="TargetInfoText" Style="{StaticResource CaptionText}" Margin="2,6,0,0"
                        TextWrapping="Wrap" />
 
             <!-- タイトル -->
-            <TextBlock Text="タイトル" Style="{StaticResource SectionHeaderText}" Margin="0,16,0,6" />
+            <TextBlock Text="{DynamicResource Str.Edit.TitleLabel}" Style="{StaticResource SectionHeaderText}" Margin="0,16,0,6" />
             <TextBox x:Name="TitleBox" FontSize="13.5" />
 
             <!-- タグ -->
             <Grid Margin="0,16,0,6">
-                <TextBlock Text="タグ" Style="{StaticResource SectionHeaderText}" Margin="0"
+                <TextBlock Text="{DynamicResource Str.Tag.Section}" Style="{StaticResource SectionHeaderText}" Margin="0"
                            VerticalAlignment="Center" />
                 <TextBlock Style="{StaticResource CaptionText}" HorizontalAlignment="Right"
                            VerticalAlignment="Center"
-                           Text="入力して Space キーで確定 / Backspace で直前を削除" />
+                           Text="{DynamicResource Str.Edit.TagHint}" />
             </Grid>
             <controls:TagInputControl x:Name="TagInput" />
 
             <!-- フォルダ -->
-            <TextBlock Text="フォルダ" Style="{StaticResource SectionHeaderText}" Margin="0,16,0,6" />
+            <TextBlock Text="{DynamicResource Str.Edit.Folder}" Style="{StaticResource SectionHeaderText}" Margin="0,16,0,6" />
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <ComboBox x:Name="FolderCombo" Grid.Column="0" />
-                <Button Grid.Column="1" Content="新規フォルダ..." Style="{StaticResource SecondaryButton}"
+                <Button Grid.Column="1" Content="{DynamicResource Str.Edit.NewFolder}" Style="{StaticResource SecondaryButton}"
                         Margin="8,0,0,0" Click="OnNewFolder" />
             </Grid>
 
             <!-- アイコン -->
-            <TextBlock Text="アイコン" Style="{StaticResource SectionHeaderText}" Margin="0,16,0,6" />
+            <TextBlock Text="{DynamicResource Str.Edit.Icon}" Style="{StaticResource SectionHeaderText}" Margin="0,16,0,6" />
             <Border Padding="12" CornerRadius="8" Background="{DynamicResource SurfaceBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
                 <Grid>
@@ -81,12 +81,12 @@
                         <TextBlock x:Name="IconSourceText" Style="{StaticResource CaptionText}"
                                    TextWrapping="Wrap" Margin="0,0,0,8" />
                         <StackPanel Orientation="Horizontal">
-                            <Button Content="画像を選択..." Style="{StaticResource SecondaryButton}"
+                            <Button Content="{DynamicResource Str.Edit.ChooseImage}" Style="{StaticResource SecondaryButton}"
                                     Click="OnChooseIcon" />
-                            <Button x:Name="FetchFaviconButton" Content="favicon を取得"
+                            <Button x:Name="FetchFaviconButton" Content="{DynamicResource Str.Edit.FetchFavicon}"
                                     Style="{StaticResource SecondaryButton}" Margin="6,0,0,0"
                                     Click="OnFetchFavicon" />
-                            <Button Content="既定に戻す" Style="{StaticResource GhostButton}" Margin="6,0,0,0"
+                            <Button Content="{DynamicResource Str.Common.ResetDefault}" Style="{StaticResource GhostButton}" Margin="6,0,0,0"
                                     Click="OnResetIcon" />
                         </StackPanel>
                     </StackPanel>
@@ -94,7 +94,7 @@
             </Border>
 
             <!-- メモ（検索対象にもなる） -->
-            <TextBlock Text="メモ（任意・検索対象になります）" Style="{StaticResource SectionHeaderText}"
+            <TextBlock Text="{DynamicResource Str.Edit.Note}" Style="{StaticResource SectionHeaderText}"
                        Margin="0,16,0,6" />
             <TextBox x:Name="NoteBox" Height="60" AcceptsReturn="True"
                      TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
@@ -105,12 +105,12 @@
                    Margin="2,14,0,0" TextWrapping="Wrap" Visibility="Collapsed" />
 
         <Grid Grid.Row="2" Margin="0,20,0,0">
-            <Button x:Name="DeleteButton" Content="削除" Style="{StaticResource GhostButton}"
+            <Button x:Name="DeleteButton" Content="{DynamicResource Str.Common.Delete}" Style="{StaticResource GhostButton}"
                     HorizontalAlignment="Left" Foreground="{DynamicResource DangerBrush}"
                     Visibility="Collapsed" Click="OnDelete" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="キャンセル" Style="{StaticResource SecondaryButton}" IsCancel="True" MinWidth="100" />
-                <Button x:Name="SaveButton" Content="保存" Style="{StaticResource PrimaryButton}"
+                <Button Content="{DynamicResource Str.Common.Cancel}" Style="{StaticResource SecondaryButton}" IsCancel="True" MinWidth="100" />
+                <Button x:Name="SaveButton" Content="{DynamicResource Str.Common.Save}" Style="{StaticResource PrimaryButton}"
                         Margin="8,0,0,0" MinWidth="100" IsDefault="True" Click="OnSave" />
             </StackPanel>
         </Grid>

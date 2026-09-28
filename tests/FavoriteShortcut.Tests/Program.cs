@@ -27,6 +27,7 @@ public static class Program
         {
             TargetResolverTests();
             BookmarkReaderTests();
+            LocalizationTests();
             BrowserFaviconCacheTests();
             TextNormalizerTests();
             StoreTests();
@@ -934,6 +935,211 @@ public static class Program
     /// <summary>1x1 の PNG（アイコンの持ち運び確認用）。</summary>
     private static byte[] MinimalPng() => Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
+    // --------------------------------------------------------------- 多言語
+
+    private static void LocalizationTests()
+    {
+        Group("表示言語（日本語 / 英語）");
+
+        Test("日本語と英語でキーが完全に一致している", () =>
+        {
+            AssertEqual(Strings.Japanese.Count, Strings.English.Count, "キーの数");
+            foreach (var key in Strings.Japanese.Keys)
+                AssertTrue(Strings.English.ContainsKey(key), $"英語側に {key} がある");
+        });
+
+        Test("空の訳がない", () =>
+        {
+            foreach (var (key, value) in Strings.Japanese)
+                AssertTrue(value.Length > 0, $"日本語 {key}");
+            foreach (var (key, value) in Strings.English)
+                AssertTrue(value.Length > 0, $"英語 {key}");
+        });
+
+        Test("{0} などの差し込み位置が両言語でそろっている", () =>
+        {
+            var placeholder = new System.Text.RegularExpressions.Regex(@"\{(\d+)\}");
+            foreach (var key in Strings.Japanese.Keys)
+            {
+                var ja = placeholder.Matches(Strings.Japanese[key]).Select(m => m.Value).Distinct().OrderBy(x => x);
+                var en = placeholder.Matches(Strings.English[key]).Select(m => m.Value).Distinct().OrderBy(x => x);
+                AssertEqual(string.Join(",", ja), string.Join(",", en), key);
+            }
+        });
+
+        Test("英語の訳に日本語が混ざっていない", () =>
+        {
+            var jp = new System.Text.RegularExpressions.Regex(@"[぀-ヿ一-鿿]");
+            foreach (var (key, value) in Strings.English)
+                AssertTrue(!jp.IsMatch(value), $"{key}: {value}");
+        });
+
+        // ソースを走査して、画面から参照しているキーがすべて対訳表にあるかを確認する。
+        // （XAML の DynamicResource はキーが無くても例外にならず、空欄になるだけなので）
+        var srcRoot = FindSourceRoot();
+        Test("画面とコードから参照しているキーがすべて対訳表にある", () =>
+        {
+            AssertTrue(srcRoot is not null, "ソースフォルダが見つかる");
+            var referenced = new System.Text.RegularExpressions.Regex(
+                @"(?:DynamicResource\s+|Loc\.T\(\s*""|new\(SpecialFolderKind\.\w+,\s*""|""(?=Str\.))(Str\.[A-Za-z0-9.]+)");
+
+            var missing = new List<string>();
+            var used = 0;
+            foreach (var file in Directory.EnumerateFiles(srcRoot!, "*.*", SearchOption.AllDirectories))
+            {
+                if (!(file.EndsWith(".cs") || file.EndsWith(".xaml"))) continue;
+                if (file.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)) continue;
+                if (file.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)) continue;
+                if (Path.GetFileName(file) == "Strings.cs") continue;
+
+                // コメント内の説明用の例（Str.xxx など）は対象外
+                var code = string.Join("\n", File.ReadAllLines(file).Where(line =>
+                {
+                    var t = line.TrimStart();
+                    return !t.StartsWith("//") && !t.StartsWith("<!--");
+                }));
+
+                foreach (System.Text.RegularExpressions.Match m in referenced.Matches(code))
+                {
+                    used++;
+                    if (!Strings.Japanese.ContainsKey(m.Groups[1].Value))
+                        missing.Add($"{Path.GetFileName(file)}: {m.Groups[1].Value}");
+                }
+            }
+
+            AssertTrue(used > 250, $"参照を十分に検出できている（{used} 件）");
+            AssertTrue(missing.Count == 0, "対訳表に無いキー: " + string.Join(", ", missing));
+        });
+
+        Test("画面の XAML に日本語が直接書かれていない", () =>
+        {
+            AssertTrue(srcRoot is not null, "ソースフォルダが見つかる");
+            var attr = new System.Text.RegularExpressions.Regex(
+                @"(?:Text|Content|ToolTip|Header|Title)=""([^""{]*[぀-ヿ一-鿿][^""]*)""");
+
+            var found = new List<string>();
+            foreach (var file in Directory.EnumerateFiles(srcRoot!, "*.xaml", SearchOption.AllDirectories))
+            {
+                if (file.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)) continue;
+                foreach (System.Text.RegularExpressions.Match m in attr.Matches(File.ReadAllText(file)))
+                {
+                    // 言語の選択肢「日本語」は、どの言語で表示していても日本語のまま出す
+                    if (m.Groups[1].Value == "日本語") continue;
+                    found.Add($"{Path.GetFileName(file)}: {m.Groups[1].Value}");
+                }
+            }
+
+            AssertTrue(found.Count == 0, string.Join(", ", found));
+        });
+
+        Test("自動: Windows が日本語なら日本語で表示する", () =>
+            AssertEqual(AppLanguage.Japanese,
+                Loc.ResolveFor(AppLanguage.Auto, new System.Globalization.CultureInfo("ja-JP")), "ja-JP"));
+
+        Test("自動: 日本語以外の Windows では英語で表示する", () =>
+        {
+            foreach (var name in new[] { "en-US", "en-GB", "fr-FR", "de-DE", "zh-CN", "ko-KR" })
+                AssertEqual(AppLanguage.English,
+                    Loc.ResolveFor(AppLanguage.Auto, new System.Globalization.CultureInfo(name)), name);
+        });
+
+        Test("日本語 / 英語を明示した場合は Windows の言語に関係なくそれを使う", () =>
+        {
+            var en = new System.Globalization.CultureInfo("en-US");
+            var ja = new System.Globalization.CultureInfo("ja-JP");
+            AssertEqual(AppLanguage.Japanese, Loc.ResolveFor(AppLanguage.Japanese, en), "英語環境で日本語");
+            AssertEqual(AppLanguage.English, Loc.ResolveFor(AppLanguage.English, ja), "日本語環境で英語");
+        });
+
+        Test("言語を切り替えると取得する文字列が変わる", () =>
+        {
+            try
+            {
+                Loc.Apply(AppLanguage.English);
+                AssertEqual("Uncategorized", Loc.T("Str.Folder.Uncategorized"), "英語");
+                AssertEqual("Delete \"GitHub\"?", Loc.T("Str.Common.ConfirmDeleteOne", "GitHub"), "差し込み");
+
+                Loc.Apply(AppLanguage.Japanese);
+                AssertEqual("未分類", Loc.T("Str.Folder.Uncategorized"), "日本語");
+            }
+            finally
+            {
+                Loc.Apply(AppLanguage.Japanese);
+            }
+        });
+
+        Test("存在しないキーでも落ちずにキーをそのまま返す", () =>
+            AssertEqual("Str.NoSuchKey", Loc.T("Str.NoSuchKey"), "キーを返す"));
+
+        Test("言語の設定を保存・復元できる", () =>
+        {
+            var path = Path.Combine(AppPaths.DataDirectory, "language-test.sqlite");
+            using (var db = new Database(path))
+            {
+                var settings = new SettingsService(new AppStore(db));
+                AssertEqual(AppLanguage.Auto, settings.Current.Language, "既定は自動");
+
+                var s = settings.Current.Clone();
+                s.Language = AppLanguage.English;
+                settings.Save(s);
+            }
+
+            using (var db = new Database(path))
+            {
+                var settings = new SettingsService(new AppStore(db));
+                AssertEqual(AppLanguage.English, settings.Current.Language, "再起動後");
+            }
+        });
+
+        // 表示用の「未分類」は言語で変わる。重複判定にそれを使うと、英語表示のときに
+        // 同じデータを取り込み直すと二重登録されてしまうため、言語に依存しないことを確かめる。
+        Test("英語表示でも未分類の項目の重複取り込みを防げる", () =>
+        {
+            var zip = Path.Combine(AppPaths.DataDirectory, "language-merge.zip");
+            using var db = new Database(Path.Combine(AppPaths.DataDirectory, "language-merge.sqlite"));
+            var store = new AppStore(db);
+            var transfer = new ExportImportService(store, new SettingsService(store));
+
+            store.AddShortcut(new ShortcutItem
+            {
+                Title = "未分類の項目",
+                Target = "https://example.com/uncategorized",
+                TargetType = TargetType.Web,
+            });
+
+            try
+            {
+                Loc.Apply(AppLanguage.Japanese);
+                transfer.Export(zip);
+
+                Loc.Apply(AppLanguage.English);
+                store.RefreshLocalizedTexts();
+                var summary = transfer.Import(zip, ImportMode.Merge);
+
+                AssertEqual(1, store.Shortcuts.Count, "件数が増えていない");
+                AssertEqual(1, summary.SkippedShortcuts, "重複としてスキップ");
+            }
+            finally
+            {
+                Loc.Apply(AppLanguage.Japanese);
+            }
+        });
+    }
+
+    /// <summary>テストの実行場所から上へたどり、アプリのソースフォルダを探す。</summary>
+    private static string? FindSourceRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "src", "FavoriteShortcut");
+            if (File.Exists(Path.Combine(dir.FullName, "FavoriteShortcut.sln")) && Directory.Exists(candidate))
+                return candidate;
+            dir = dir.Parent;
+        }
+        return null;
+    }
 
     private static void TryCleanUp(string directory)
     {

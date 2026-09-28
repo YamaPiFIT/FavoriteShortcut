@@ -12,6 +12,14 @@ public enum AppTheme
     Dark = 1,
 }
 
+/// <summary>表示言語。Auto は Windows の表示言語に合わせる。</summary>
+public enum AppLanguage
+{
+    Auto = 0,
+    Japanese = 1,
+    English = 2,
+}
+
 /// <summary>アプリ設定。DB の settings テーブル（key/value）に保存される。</summary>
 public sealed class AppSettings
 {
@@ -21,6 +29,9 @@ public sealed class AppSettings
     public int IconSize { get; set; } = 32;
 
     public AppTheme Theme { get; set; } = AppTheme.Light;
+
+    /// <summary>表示言語。既定は Windows の表示言語に合わせる。</summary>
+    public AppLanguage Language { get; set; } = AppLanguage.Auto;
 
     /// <summary>ランチャー用グローバルホットキー（System.Windows.Input.ModifierKeys の値）。</summary>
     public int HotKeyModifiers { get; set; } = 2; // Control

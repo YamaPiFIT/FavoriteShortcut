@@ -31,6 +31,7 @@ public sealed class SettingsService
         s.ViewMode = GetEnum(raw, "view_mode", s.ViewMode);
         s.IconSize = Math.Clamp(GetInt(raw, "icon_size", s.IconSize), 16, 96);
         s.Theme = GetEnum(raw, "theme", s.Theme);
+        s.Language = GetEnum(raw, "language", s.Language);
         s.HotKeyModifiers = GetInt(raw, "hotkey_modifiers", s.HotKeyModifiers);
         s.HotKeyKey = GetInt(raw, "hotkey_key", s.HotKeyKey);
         s.MinimizeToTray = GetBool(raw, "minimize_to_tray", s.MinimizeToTray);
@@ -55,6 +56,7 @@ public sealed class SettingsService
             ["view_mode"] = ((int)settings.ViewMode).ToString(CultureInfo.InvariantCulture),
             ["icon_size"] = settings.IconSize.ToString(CultureInfo.InvariantCulture),
             ["theme"] = ((int)settings.Theme).ToString(CultureInfo.InvariantCulture),
+            ["language"] = ((int)settings.Language).ToString(CultureInfo.InvariantCulture),
             ["hotkey_modifiers"] = settings.HotKeyModifiers.ToString(CultureInfo.InvariantCulture),
             ["hotkey_key"] = settings.HotKeyKey.ToString(CultureInfo.InvariantCulture),
             ["minimize_to_tray"] = settings.MinimizeToTray ? "1" : "0",

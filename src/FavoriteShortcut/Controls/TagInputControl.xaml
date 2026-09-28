@@ -27,7 +27,7 @@
         <TextBlock x:Name="Placeholder" IsHitTestVisible="False"
                    Margin="14,0,0,0" VerticalAlignment="Center"
                    Foreground="{DynamicResource TextDisabledBrush}"
-                   Text="タグを入力して Space で確定（例: AI 開発 仕事）" />
+                   Text="{DynamicResource Str.Tag.InputPlaceholder}" />
 
         <Popup x:Name="SuggestionPopup" PlacementTarget="{Binding ElementName=RootBorder}"
                Placement="Bottom" AllowsTransparency="True" StaysOpen="False" Focusable="False"

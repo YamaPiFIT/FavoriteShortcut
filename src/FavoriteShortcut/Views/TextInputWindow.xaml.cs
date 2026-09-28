@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using FavoriteShortcut.Services;
 
 namespace FavoriteShortcut.Views;
 
@@ -42,7 +43,7 @@ public partial class TextInputWindow : Window
         var value = ValueBox.Text.Trim();
         if (value.Length == 0)
         {
-            ErrorText.Text = "1 文字以上入力してください。";
+            ErrorText.Text = Loc.T("Str.TextInput.Required");
             ErrorText.Visibility = Visibility.Visible;
             ValueBox.Focus();
             return;

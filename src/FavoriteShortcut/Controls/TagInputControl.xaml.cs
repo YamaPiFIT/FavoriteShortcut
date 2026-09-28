@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using FavoriteShortcut.Services;
 
 namespace FavoriteShortcut.Controls;
 
@@ -246,7 +247,7 @@ public partial class TagInputControl : UserControl
             Padding = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Center,
             Cursor = Cursors.Hand,
-            ToolTip = $"「{tag}」を削除",
+            ToolTip = Loc.T("Str.Tag.RemoveTooltip", tag),
             Style = (Style)FindResource("GhostButton"),
         };
         close.Click += (_, _) => RemoveTag(tag);

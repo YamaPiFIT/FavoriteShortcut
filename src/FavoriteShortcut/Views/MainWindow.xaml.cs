@@ -33,8 +33,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly SettingsService _settings;
     private readonly IconService _icons;
 
-    private readonly SpecialFolderNode _allNode = new(SpecialFolderKind.All, "すべてのショートカット", "★");
-    private readonly SpecialFolderNode _uncategorizedNode = new(SpecialFolderKind.Uncategorized, "未分類", "◇");
+    private readonly SpecialFolderNode _allNode = new(SpecialFolderKind.All, "Str.Folder.All", "★");
+    private readonly SpecialFolderNode _uncategorizedNode = new(SpecialFolderKind.Uncategorized, "Str.Folder.Uncategorized", "◇");
 
     private readonly ObservableCollection<ShortcutItem> _displayed = new();
     private readonly DispatcherTimer _searchTimer;
@@ -67,6 +67,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         _store.DataChanged += OnStoreChanged;
         _settings.Changed += (_, _) => ApplySettings();
+        Loc.LanguageChanged += OnLanguageChanged;
 
         ApplySettings();
         RestoreScope();
@@ -110,12 +111,25 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         UpdateHotKeyHint();
     }
 
+    /// <summary>
+    /// 表示言語が変わったとき、コードで組み立てている文言を作り直す。
+    /// （XAML に書いた文言は DynamicResource なので自動で切り替わる）
+    /// </summary>
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        _allNode.Refresh();
+        _uncategorizedNode.Refresh();
+        UpdateHotKeyHint();
+        RefreshTagCloud();
+        RefreshList();
+    }
+
     private void UpdateHotKeyHint()
     {
         var current = _app.HotKeys.Current;
         HotKeyHint.Text = current is null
-            ? "ランチャーのホットキーは未登録です（設定で変更できます）"
-            : $"ランチャー: {HotKeyService.Describe(current.Value.Modifiers, current.Value.Key)}";
+            ? Loc.T("Str.Main.HotKeyNotRegistered")
+            : Loc.T("Str.Main.HotKeyHint", HotKeyService.Describe(current.Value.Modifiers, current.Value.Key));
     }
 
     public void PersistWindowState()
@@ -144,6 +158,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (_app.IsExiting)
         {
             _store.DataChanged -= OnStoreChanged;
+            Loc.LanguageChanged -= OnLanguageChanged;
             base.OnClosing(e);
             return;
         }
@@ -159,6 +174,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         _store.DataChanged -= OnStoreChanged;
+        Loc.LanguageChanged -= OnLanguageChanged;
         base.OnClosing(e);
         _app.ExitApplication();
     }
@@ -299,20 +315,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ScopeText.Text = _scope switch
         {
             FolderItem f => f.FullPath,
-            SpecialFolderNode { Kind: SpecialFolderKind.Uncategorized } => "未分類",
-            _ => "すべてのショートカット",
+            SpecialFolderNode { Kind: SpecialFolderKind.Uncategorized } => Loc.T("Str.Folder.Uncategorized"),
+            _ => Loc.T("Str.Folder.All"),
         };
 
         CountText.Text = searching
-            ? $"{shownCount} 件ヒット / このフォルダ {scopeCount} 件"
-            : $"{shownCount} 件";
+            ? Loc.T("Str.Main.CountSearching", shownCount, scopeCount)
+            : Loc.T("Str.Main.Count", shownCount);
 
         TruncationNotice.Visibility = truncated ? Visibility.Visible : Visibility.Collapsed;
         if (truncated)
         {
             TruncationText.Text =
-                $"表示が重くならないよう、カード表示では先頭 {MaxCardItems} 件のみ表示しています。" +
-                "検索で絞り込むか、リスト表示に切り替えるとすべて表示できます。";
+                Loc.T("Str.Main.Truncated", MaxCardItems);
         }
 
         var empty = shownCount == 0;
@@ -321,13 +336,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         if (empty)
         {
-            EmptyTitle.Text = searching ? "見つかりませんでした" : "ショートカットがありません";
+            EmptyTitle.Text = Loc.T(searching ? "Str.Main.NotFoundTitle" : "Str.Main.EmptyTitle");
             EmptyHint.Text = searching
-                ? "別のキーワードをお試しください。タイトル・タグ・フォルダ名・URL / パスが検索対象です。"
-                : "「＋ 新規登録」から追加するか、エクスプローラーからファイル・フォルダをここへドラッグしてください。";
+                ? Loc.T("Str.Main.NotFoundHint")
+                : Loc.T("Str.Main.EmptyHint");
         }
 
-        StatusText.Text = $"全 {_store.Shortcuts.Count} 件 / フォルダ {_store.AllFolders.Count} 件 / タグ {_store.AllTagNames.Count()} 件";
+        StatusText.Text = Loc.T("Str.Main.Status", _store.Shortcuts.Count, _store.AllFolders.Count, _store.AllTagNames.Count());
     }
 
     private void RefreshTagCloud()
@@ -347,7 +362,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 Padding = new Thickness(9, 3, 9, 3),
                 FontSize = 11.5,
                 Tag = name,
-                ToolTip = $"「{name}」で検索",
+                ToolTip = Loc.T("Str.Tag.SearchTooltip", name),
             };
             button.Click += (_, _) =>
             {
@@ -493,8 +508,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 MessageBox.Show(this,
                     $"{result.ErrorTitle}\n\n{result.ErrorDetail}\n\n" +
-                    "登録内容は残っています。編集画面からパスを修正できます。",
-                    "お気に入りショートカット", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    Loc.T("Str.Launch.KeptEditHint"),
+                    Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
     }
@@ -531,7 +546,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         var copy = item.Clone();
         copy.Id = Guid.NewGuid().ToString("N");
-        copy.Title = item.Title + " のコピー";
+        copy.Title = Loc.T("Str.Main.CopySuffix", item.Title);
         copy.UsageCount = 0;
         copy.LastUsedAt = null;
         _store.AddShortcut(copy);
@@ -559,7 +574,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         try
         {
             Clipboard.SetText(text);
-            StatusText.Text = "クリップボードにコピーしました。";
+            StatusText.Text = Loc.T("Str.Main.Copied");
         }
         catch (Exception ex)
         {
@@ -575,7 +590,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (!result.Success)
         {
             MessageBox.Show(this, $"{result.ErrorTitle}\n\n{result.ErrorDetail}",
-                "お気に入りショートカット", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -615,11 +630,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (items.Count == 0) return;
 
         var message = items.Count == 1
-            ? $"「{items[0].DisplayTitle}」を削除しますか？"
-            : $"選択した {items.Count} 件のショートカットを削除しますか？";
+            ? Loc.T("Str.Common.ConfirmDeleteOne", items[0].DisplayTitle)
+            : Loc.T("Str.Main.DeleteMany", items.Count);
 
-        if (MessageBox.Show(this, message + "\n\nこの操作は元に戻せません。", "削除の確認",
-                MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+        if (MessageBox.Show(this, message + "\n\n" + Loc.T("Str.Common.CannotUndo"), Loc.T("Str.Common.ConfirmDeleteTitle"), MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
             return;
 
         foreach (var item in items)
@@ -652,7 +666,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void CreateFolder(string? parentId)
     {
-        var dialog = new TextInputWindow("新しいフォルダ", "フォルダ名", string.Empty) { Owner = this };
+        var dialog = new TextInputWindow(Loc.T("Str.Folder.NewTitle"), Loc.T("Str.Folder.NameLabel"), string.Empty) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
         var created = _store.CreateFolder(dialog.Value, parentId);
@@ -665,7 +679,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (_scope is not FolderItem folder) return;
 
-        var dialog = new TextInputWindow("フォルダ名の変更", "フォルダ名", folder.Name) { Owner = this };
+        var dialog = new TextInputWindow(Loc.T("Str.Folder.RenameTitle"), Loc.T("Str.Folder.NameLabel"), folder.Name) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
         _store.RenameFolder(folder, dialog.Value);
@@ -787,8 +801,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             if (!_store.MoveFolder(folder, dropTarget.FolderId))
             {
-                MessageBox.Show(this, "フォルダを自分自身やその配下へは移動できません。",
-                    "お気に入りショートカット", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, Loc.T("Str.Folder.CannotMoveIntoSelf"),
+                    Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Information);
             }
             RefreshList();
             return;
@@ -855,8 +869,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
-        var message = $"{paths.Count} 件のファイル / フォルダをショートカットとして登録しますか？";
-        if (MessageBox.Show(this, message, "まとめて登録", MessageBoxButton.OKCancel,
+        var message = Loc.T("Str.Main.AddMany", paths.Count);
+        if (MessageBox.Show(this, message, Loc.T("Str.Main.AddManyTitle"), MessageBoxButton.OKCancel,
                 MessageBoxImage.Question) != MessageBoxResult.OK)
             return;
 
@@ -910,22 +924,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         RefreshList();
 
         var skipped = dialog.SkippedCount > 0
-            ? $"\n重複のためスキップ: {dialog.SkippedCount} 件"
+            ? Loc.T("Str.Common.SkippedDuplicates", dialog.SkippedCount)
             : string.Empty;
 
         MessageBox.Show(this,
-            $"お気に入りを取り込みました。\n\n" +
-            $"取り込んだショートカット: {dialog.ImportedCount} 件{skipped}\n\n" +
-            "アイコンは順次取得されます。",
-            "取り込み完了", MessageBoxButton.OK, MessageBoxImage.Information);
+            Loc.T("Str.Bookmark.Done", dialog.ImportedCount, skipped),
+            Loc.T("Str.Bookmark.DoneTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void OnExport(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog
         {
-            Title = "エクスポート先を選択",
-            Filter = "お気に入りショートカット データ (*.zip)|*.zip",
+            Title = Loc.T("Str.Export.DialogTitle"),
+            Filter = Loc.T("Str.Transfer.Filter"),
             FileName = ExportImportService.SuggestedFileName,
             AddExtension = true,
         };
@@ -936,15 +948,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Mouse.OverrideCursor = Cursors.Wait;
             _app.Transfer.Export(dialog.FileName);
             MessageBox.Show(this,
-                $"エクスポートしました。\n\n{dialog.FileName}\n\n" +
-                "このファイルを別のPCでインポートすると、フォルダ・タグ・アイコンごと復元できます。",
-                "エクスポート完了", MessageBoxButton.OK, MessageBoxImage.Information);
+                Loc.T("Str.Export.Done", dialog.FileName),
+                Loc.T("Str.Export.DoneTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
             AppLog.Error("エクスポートに失敗しました。", ex);
-            MessageBox.Show(this, $"エクスポートに失敗しました。\n\n{ex.Message}",
-                "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, Loc.T("Str.Export.Failed", ex.Message),
+                Loc.T("Str.Common.Error"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -956,8 +967,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var dialog = new OpenFileDialog
         {
-            Title = "インポートするファイルを選択",
-            Filter = "お気に入りショートカット データ (*.zip)|*.zip",
+            Title = Loc.T("Str.Import.DialogTitle"),
+            Filter = Loc.T("Str.Transfer.Filter"),
             CheckFileExists = true,
         };
         if (dialog.ShowDialog(this) != true) return;
@@ -966,8 +977,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (manifest is null)
         {
             MessageBox.Show(this,
-                "このファイルは、このアプリのエクスポートデータではないようです。",
-                "インポートできません", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Loc.T("Str.Import.NotOurFile"),
+                Loc.T("Str.Import.CannotImportTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -988,22 +999,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             ApplySettings();
 
             var skipped = summary.SkippedShortcuts > 0
-                ? $"\n重複のためスキップ: {summary.SkippedShortcuts} 件"
+                ? Loc.T("Str.Common.SkippedDuplicates", summary.SkippedShortcuts)
                 : string.Empty;
 
             MessageBox.Show(this,
-                $"インポートが完了しました。\n\n" +
-                $"フォルダ: {summary.Folders} 件\nショートカット: {summary.Shortcuts} 件{skipped}\n\n" +
-                $"念のため、取り込み前のデータを次の場所にバックアップしました:\n{summary.BackupPath}",
-                "インポート完了", MessageBoxButton.OK, MessageBoxImage.Information);
+                Loc.T("Str.Import.Done", summary.Folders, summary.Shortcuts, skipped, summary.BackupPath),
+                Loc.T("Str.Import.DoneTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
             AppLog.Error("インポートに失敗しました。", ex);
             MessageBox.Show(this,
-                $"インポートに失敗しました。現在のデータは変更されていないか、" +
-                $"バックアップから復元できます。\n\n{ex.Message}",
-                "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                Loc.T("Str.Import.Failed", ex.Message),
+                Loc.T("Str.Common.Error"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -1016,14 +1024,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         try
         {
             var path = _app.Transfer.CreateBackup("manual");
-            MessageBox.Show(this, $"バックアップを作成しました。\n\n{path}",
-                "バックアップ", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, Loc.T("Str.Backup.Done", path),
+                Loc.T("Str.Backup.Title"), MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
             AppLog.Error("バックアップに失敗しました。", ex);
-            MessageBox.Show(this, $"バックアップに失敗しました。\n\n{ex.Message}",
-                "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, Loc.T("Str.Backup.Failed", ex.Message),
+                Loc.T("Str.Common.Error"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -1032,21 +1040,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void OnShowHelp(object sender, RoutedEventArgs e)
     {
+        // README は日本語のみなので、英語表示のときはアプリ内の説明を出す
         var readme = Path.Combine(AppPaths.ExeDirectory, "README.md");
-        if (File.Exists(readme))
+        if (Loc.Current == AppLanguage.Japanese && File.Exists(readme))
         {
             LaunchService.OpenPath(readme);
             return;
         }
 
-        MessageBox.Show(this,
-            "基本的な使い方\n\n" +
-            "・「＋ 新規登録」または エクスプローラーからのドラッグ＆ドロップで登録します。\n" +
-            "・タグは入力して Space キーで確定します（日本語IMEの変換用スペースとは競合しません）。\n" +
-            "・上部の検索欄では、タイトル・タグ・フォルダ名・URL / パスをまとめて検索できます。\n" +
-            "・どのアプリを使っていても、ホットキー（既定 Ctrl+Space）でランチャーを呼び出せます。\n" +
-            "・ランチャーでは ↑↓ で選択、Enter で起動、Esc で閉じます。",
-            "使い方", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(this, Loc.T("Str.Help.Body"), Loc.T("Str.Help.Title"),
+            MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     // ------------------------------------------------------------- ユーティリティ

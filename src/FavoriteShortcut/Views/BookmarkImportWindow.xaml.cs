@@ -64,8 +64,7 @@ public partial class BookmarkImportWindow : Window
             ProfileCombo.IsEnabled = false;
             ImportButton.IsEnabled = false;
             StatusText.Text =
-                "お気に入りを読み取れるブラウザが見つかりませんでした。" +
-                "Microsoft Edge または Google Chrome がインストールされ、一度でも起動されている必要があります。";
+                Loc.T("Str.Bookmark.NoBrowsers");
             return;
         }
 
@@ -74,7 +73,7 @@ public partial class BookmarkImportWindow : Window
 
     private void BuildFolderChoices(string? selectedId)
     {
-        var choices = new List<FolderChoice> { new(null, "未分類（フォルダに入れない）") };
+        var choices = new List<FolderChoice> { new(null, Loc.T("Str.Folder.UncategorizedChoice")) };
         choices.AddRange(_store.AllFolders
             .OrderBy(f => f.FullPath, StringComparer.CurrentCulture)
             .Select(f => new FolderChoice(f.Id, f.FullPath)));
@@ -98,11 +97,11 @@ public partial class BookmarkImportWindow : Window
         {
             AppLog.Error($"お気に入りを読めませんでした: {profile.FilePath}", ex);
             _roots = new List<BookmarkNode>();
-            StatusText.Text = $"このブラウザのお気に入りを読めませんでした。\n{ex.Message}";
+            StatusText.Text = Loc.T("Str.Bookmark.ReadFailed", ex.Message);
         }
 
         // 既定のフォルダ名を、選んだブラウザに合わせる
-        NewFolderNameBox.Text = $"{profile.BrowserName} のお気に入り";
+        NewFolderNameBox.Text = Loc.T("Str.Bookmark.DefaultFolderName", profile.BrowserName);
         TagNameBox.Text = profile.BrowserName;
 
         foreach (var root in _roots)
@@ -125,7 +124,7 @@ public partial class BookmarkImportWindow : Window
         {
             RootList.Children.Add(new TextBlock
             {
-                Text = "お気に入りが登録されていません。",
+                Text = Loc.T("Str.Bookmark.NoBookmarks"),
                 Margin = new Thickness(6),
                 Style = (Style)FindResource("CaptionText"),
             });
@@ -140,12 +139,12 @@ public partial class BookmarkImportWindow : Window
         panel.Children.Add(new TextBlock { Text = "📁", Margin = new Thickness(0, 0, 7, 0) });
         panel.Children.Add(new TextBlock
         {
-            Text = root.Name.Length > 0 ? root.Name : "（名前なし）",
+            Text = root.Name.Length > 0 ? root.Name : Loc.T("Str.Bookmark.Untitled"),
             FontWeight = FontWeights.SemiBold,
         });
         panel.Children.Add(new TextBlock
         {
-            Text = $"　{root.LinkCount} 件",
+            Text = Loc.T("Str.Bookmark.RootCount", root.LinkCount),
             Opacity = 0.7,
         });
         return panel;
@@ -181,8 +180,8 @@ public partial class BookmarkImportWindow : Window
             : 0;
 
         SummaryText.Text = folders > 0
-            ? $"ショートカット {links} 件 / フォルダ {folders} 個"
-            : $"ショートカット {links} 件";
+            ? Loc.T("Str.Bookmark.Summary", links, folders)
+            : Loc.T("Str.Bookmark.SummaryNoFolders", links);
 
         if (ImportButton is not null) ImportButton.IsEnabled = links > 0;
     }
@@ -231,8 +230,8 @@ public partial class BookmarkImportWindow : Window
         {
             AppLog.Error("お気に入りの取り込みに失敗しました。", ex);
             MessageBox.Show(this,
-                $"取り込み中にエラーが発生しました。\n\nそこまでに取り込んだ内容は保存されています。\n\n{ex.Message}",
-                "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                Loc.T("Str.Bookmark.ImportFailed", ex.Message),
+                Loc.T("Str.Common.Error"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -293,7 +292,7 @@ public partial class BookmarkImportWindow : Window
 
         var name = NewFolderNameBox.Text.Trim();
         if (name.Length == 0)
-            throw new InvalidOperationException("作成するフォルダ名を入力してください。");
+            throw new InvalidOperationException(Loc.T("Str.Bookmark.FolderNameRequired"));
 
         return _store.CreateFolder(name, null).Id;
     }
@@ -302,6 +301,6 @@ public partial class BookmarkImportWindow : Window
     private static string SafeFolderName(string name)
     {
         var trimmed = name.Trim();
-        return trimmed.Length == 0 ? "（名前なし）" : trimmed;
+        return trimmed.Length == 0 ? Loc.T("Str.Bookmark.Untitled") : trimmed;
     }
 }

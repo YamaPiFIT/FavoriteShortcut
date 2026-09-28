@@ -1,7 +1,7 @@
 <Window x:Class="FavoriteShortcut.Views.FolderDeleteWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="フォルダの削除" SizeToContent="Height" Width="460"
+        Title="{DynamicResource Str.FolderDelete.Title}" SizeToContent="Height" Width="460"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False"
         Background="{DynamicResource WindowBackgroundBrush}"
         FontFamily="{DynamicResource UiFontFamily}">
@@ -13,17 +13,17 @@
                 Background="{DynamicResource SurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
             <StackPanel>
-                <TextBlock Text="中のショートカットの扱い" Style="{StaticResource SectionHeaderText}" />
+                <TextBlock Text="{DynamicResource Str.FolderDelete.ContentsLabel}" Style="{StaticResource SectionHeaderText}" />
                 <RadioButton x:Name="KeepOption" GroupName="Mode" IsChecked="True" Margin="0,2,0,0"
-                             Content="未分類へ移動する（削除しない）" Foreground="{DynamicResource TextPrimaryBrush}" />
+                             Content="{DynamicResource Str.FolderDelete.Keep}" Foreground="{DynamicResource TextPrimaryBrush}" />
                 <RadioButton x:Name="DeleteOption" GroupName="Mode" Margin="0,8,0,0"
-                             Content="ショートカットも一緒に削除する" Foreground="{DynamicResource TextPrimaryBrush}" />
+                             Content="{DynamicResource Str.FolderDelete.DeleteToo}" Foreground="{DynamicResource TextPrimaryBrush}" />
             </StackPanel>
         </Border>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
-            <Button Content="キャンセル" Style="{StaticResource SecondaryButton}" IsCancel="True" MinWidth="100" />
-            <Button Content="削除する" Style="{StaticResource DangerButton}" Margin="8,0,0,0" MinWidth="100"
+            <Button Content="{DynamicResource Str.Common.Cancel}" Style="{StaticResource SecondaryButton}" IsCancel="True" MinWidth="100" />
+            <Button Content="{DynamicResource Str.FolderDelete.Confirm}" Style="{StaticResource DangerButton}" Margin="8,0,0,0" MinWidth="100"
                     Click="OnDelete" />
         </StackPanel>
     </StackPanel>

@@ -165,7 +165,7 @@ public sealed class ExportImportService
 
             var importedDbPath = Path.Combine(temp, DatabaseEntry);
             if (!File.Exists(importedDbPath))
-                throw new InvalidDataException("このファイルにはデータベースが含まれていません。");
+                throw new InvalidDataException(Loc.T("Str.Transfer.NoDatabase"));
 
             // 何かあっても戻せるよう、先に現在のDBを退避する
             var backupPath = CreateBackup("import-before");
@@ -248,8 +248,14 @@ public sealed class ExportImportService
         }
 
         // 既存と同じ内容（フォルダ・タイトル・対象が一致）のショートカットは追加しない
+        // フォルダの比較には表示用の文字列（「未分類」など言語で変わるもの）を使わず、
+        // フォルダ名をつないだパス（未分類は空文字）で比べる
         var existingKeys = _store.Shortcuts
-            .Select(s => DuplicateKey(s.FolderPathText, s.Title, s.Target))
+            .Select(s => DuplicateKey(
+                s.FolderId is not null && _store.FindFolder(s.FolderId) is { } existingFolder
+                    ? existingFolder.FullPath
+                    : string.Empty,
+                s.Title, s.Target))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var addedShortcuts = 0;
@@ -259,7 +265,7 @@ public sealed class ExportImportService
         {
             var folderPath = source.FolderId is not null && imported.FindFolder(source.FolderId) is { } f
                 ? BuildPath(imported, f)
-                : "未分類";
+                : string.Empty;
 
             var key = DuplicateKey(folderPath, source.Title, source.Target);
             if (!existingKeys.Add(key)) { skipped++; continue; }

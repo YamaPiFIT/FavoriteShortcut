@@ -21,7 +21,7 @@ public static class LaunchService
     {
         var target = (item.Target ?? string.Empty).Trim();
         if (target.Length == 0)
-            return LaunchResult.Fail("開けませんでした", "URL / パスが設定されていません。");
+            return LaunchResult.Fail(Loc.T("Str.Launch.CannotOpen"), Loc.T("Str.Launch.NoTarget"));
 
         var type = item.TargetType == TargetType.Unknown ? TargetResolver.Detect(target) : item.TargetType;
         var expanded = TargetResolver.Expand(target);
@@ -32,14 +32,14 @@ public static class LaunchService
             {
                 case TargetType.Folder:
                     if (!Directory.Exists(expanded))
-                        return LaunchResult.Fail("フォルダが見つかりません。", expanded);
+                        return LaunchResult.Fail(Loc.T("Str.Launch.FolderNotFound"), expanded);
                     StartShell(expanded);
                     return LaunchResult.Ok();
 
                 case TargetType.File:
                 case TargetType.Application:
                     if (!File.Exists(expanded))
-                        return LaunchResult.Fail("ファイルが見つかりません。", expanded);
+                        return LaunchResult.Fail(Loc.T("Str.Launch.FileNotFound"), expanded);
                     StartShell(expanded, workingDirectory: Path.GetDirectoryName(expanded));
                     return LaunchResult.Ok();
 
@@ -61,7 +61,7 @@ public static class LaunchService
         catch (Exception ex)
         {
             AppLog.Warn($"起動に失敗: {target}", ex);
-            return LaunchResult.Fail("開けませんでした", $"{expanded}\n\n{ex.Message}");
+            return LaunchResult.Fail(Loc.T("Str.Launch.CannotOpen"), $"{expanded}\n\n{ex.Message}");
         }
     }
 
@@ -70,7 +70,7 @@ public static class LaunchService
     {
         var type = item.TargetType == TargetType.Unknown ? TargetResolver.Detect(item.Target) : item.TargetType;
         if (type == TargetType.Web)
-            return LaunchResult.Fail("この項目には対応していません", "Web サイトにはフォルダがありません。");
+            return LaunchResult.Fail(Loc.T("Str.Launch.NotSupported"), Loc.T("Str.Launch.WebHasNoFolder"));
 
         var expanded = TargetResolver.Expand(item.Target ?? string.Empty);
 
@@ -96,12 +96,12 @@ public static class LaunchService
                 return LaunchResult.Ok();
             }
 
-            return LaunchResult.Fail("場所が見つかりません。", expanded);
+            return LaunchResult.Fail(Loc.T("Str.Launch.LocationNotFound"), expanded);
         }
         catch (Exception ex)
         {
             AppLog.Warn($"エクスプローラー表示に失敗: {expanded}", ex);
-            return LaunchResult.Fail("開けませんでした", $"{expanded}\n\n{ex.Message}");
+            return LaunchResult.Fail(Loc.T("Str.Launch.CannotOpen"), $"{expanded}\n\n{ex.Message}");
         }
     }
 

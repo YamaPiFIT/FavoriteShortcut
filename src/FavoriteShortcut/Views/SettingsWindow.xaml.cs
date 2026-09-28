@@ -12,6 +12,8 @@ namespace FavoriteShortcut.Views;
 /// <summary>設定画面（§39, §63, §66）。</summary>
 public partial class SettingsWindow : Window
 {
+    private static readonly int[] MaxResultChoices = { 6, 8, 12, 20, 30 };
+
     private readonly App _app = App.Instance;
     private readonly SettingsService _settings;
 
@@ -26,14 +28,19 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
         _settings = _app.Settings;
+
+        BuildMaxResultChoices();
         LoadSettings();
         _loaded = true;
+
+        Loc.LanguageChanged += OnAppLanguageChanged;
     }
 
     private void LoadSettings()
     {
         var s = _settings.Current;
 
+        SelectByTag(LanguageCombo, (int)s.Language, fallbackIndex: 0);
         ThemeCombo.SelectedIndex = s.Theme == AppTheme.Dark ? 1 : 0;
         ViewModeCombo.SelectedIndex = s.ViewMode == ShortcutViewMode.List ? 1 : 0;
         SelectByTag(IconSizeCombo, s.IconSize, fallbackIndex: 1);
@@ -41,33 +48,64 @@ public partial class SettingsWindow : Window
 
         _hotKeyModifiers = (ModifierKeys)s.HotKeyModifiers;
         _hotKeyKey = (Key)s.HotKeyKey;
-        UpdateHotKeyDisplay();
 
         ShowRecentCheck.IsChecked = s.ShowRecentInLauncher;
         MinimizeToTrayCheck.IsChecked = s.MinimizeToTray;
         StartMinimizedCheck.IsChecked = s.StartMinimized;
         RestoreFolderCheck.IsChecked = s.RestoreLastFolder;
         BrowserIconCacheCheck.IsChecked = s.UseBrowserIconCache;
-        BrowserIconCacheDetected.Text = DescribeDetectedBrowsers();
-
         RunAtStartupCheck.IsChecked = StartupService.IsEnabled();
-        StartupStatus.Text = "EXE を別の場所へ移動した場合は、自動起動をいったんオフにしてから入れ直してください。";
 
-        DataPathText.Text = AppPaths.DataDirectory;
-        DataPathNote.Text = AppPaths.UsingFallbackLocation
-            ? "EXE のある場所には書き込めないため、上記の場所を使用しています。" +
-              "EXE と同じ場所の Data フォルダにまとめたい場合は、EXE を書き込み可能な場所" +
-              "（デスクトップやドキュメント、USB メモリなど）へ移してください。"
-            : "既定では EXE と同じ場所の Data フォルダに保存します。EXE とこのフォルダを一緒にコピーすれば、" +
-              "別のPCでもそのまま同じ内容で使えます。保存場所を変更した場合は次回起動時から有効になります" +
-              "（現在のデータは自動では移動しません）。";
+        RefreshLocalizedTexts();
+    }
+
+    /// <summary>
+    /// コードで組み立てている文言を、現在の表示言語で作り直す。
+    /// （XAML に書いた文言は DynamicResource なので自動で切り替わる）
+    /// </summary>
+    private void RefreshLocalizedTexts()
+    {
+        LanguageNote.Text = Loc.DescribeAutoDetection();
+
+        foreach (var obj in MaxResultsCombo.Items)
+        {
+            if (obj is ComboBoxItem { Tag: string tag } item && int.TryParse(tag, out var count))
+                item.Content = Loc.T("Str.Common.CountItems", count);
+        }
+
+        if (!_capturing)
+        {
+            CaptureButton.Content = Loc.T("Str.Settings.Change");
+            UpdateHotKeyDisplay();
+        }
+
+        BrowserIconCacheDetected.Text = DescribeDetectedBrowsers();
+        CleanIconsResult.Text = string.Empty;
+
+        StartupStatus.Text = Loc.T("Str.Settings.RunAtStartupNote");
+
+        UpdateDataPathText();
+        DataPathNote.Text = Loc.T(AppPaths.UsingFallbackLocation
+            ? "Str.Settings.DataNoteFallback"
+            : "Str.Settings.DataNoteDefault");
 
         var version = typeof(SettingsWindow).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
-        VersionText.Text = $"お気に入りショートカット  バージョン {version}";
-        StatsText.Text =
-            $"ショートカット {_app.Store.Shortcuts.Count} 件 / " +
-            $"フォルダ {_app.Store.AllFolders.Count} 件 / " +
-            $"タグ {_app.Store.AllTagNames.Count()} 件";
+        VersionText.Text = Loc.T("Str.Settings.Version", Loc.T("Str.App.Name"), version);
+        StatsText.Text = Loc.T("Str.Settings.Stats",
+            _app.Store.Shortcuts.Count, _app.Store.AllFolders.Count, _app.Store.AllTagNames.Count());
+    }
+
+    private void BuildMaxResultChoices()
+    {
+        MaxResultsCombo.Items.Clear();
+        foreach (var count in MaxResultChoices)
+        {
+            MaxResultsCombo.Items.Add(new ComboBoxItem
+            {
+                Tag = count.ToString(CultureInfo.InvariantCulture),
+                Content = Loc.T("Str.Common.CountItems", count),
+            });
+        }
     }
 
     private static void SelectByTag(ComboBox combo, int value, int fallbackIndex)
@@ -92,12 +130,32 @@ public partial class SettingsWindow : Window
             ? parsed
             : fallback;
 
-    /// <summary>テーマだけは選んだ瞬間に反映して、見た目を確認できるようにする。</summary>
+    private AppLanguage SelectedLanguage
+    {
+        get
+        {
+            var value = TagValue(LanguageCombo, (int)AppLanguage.Auto);
+            return Enum.IsDefined(typeof(AppLanguage), value) ? (AppLanguage)value : AppLanguage.Auto;
+        }
+    }
+
+    // ---------------------------------------------------------- 表示・言語
+
+    /// <summary>テーマは選んだ瞬間に反映して、見た目を確認できるようにする。</summary>
     private void OnThemeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_loaded) return;
         _app.ApplyTheme(ThemeCombo.SelectedIndex == 1 ? AppTheme.Dark : AppTheme.Light);
     }
+
+    /// <summary>言語も選んだ瞬間に切り替える（キャンセルすれば元に戻る）。</summary>
+    private void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        Loc.Apply(SelectedLanguage);
+    }
+
+    private void OnAppLanguageChanged(object? sender, EventArgs e) => RefreshLocalizedTexts();
 
     // ------------------------------------------------------------- ホットキー
 
@@ -110,16 +168,16 @@ public partial class SettingsWindow : Window
         }
 
         _capturing = true;
-        CaptureButton.Content = "キャンセル";
-        HotKeyText.Text = "キーを押してください...";
-        HotKeyStatus.Text = "Ctrl / Shift / Alt / Win と組み合わせたキーを押してください（Esc で中止）。";
+        CaptureButton.Content = Loc.T("Str.Common.Cancel");
+        HotKeyText.Text = Loc.T("Str.Settings.PressKeys");
+        HotKeyStatus.Text = Loc.T("Str.Settings.CaptureHint");
         Keyboard.Focus(this);
     }
 
     private void StopCapturing()
     {
         _capturing = false;
-        CaptureButton.Content = "変更";
+        CaptureButton.Content = Loc.T("Str.Settings.Change");
         UpdateHotKeyDisplay();
     }
 
@@ -150,7 +208,7 @@ public partial class SettingsWindow : Window
         var modifiers = Keyboard.Modifiers;
         if (modifiers == ModifierKeys.None)
         {
-            HotKeyStatus.Text = "修飾キー（Ctrl / Shift / Alt / Win）と組み合わせて押してください。";
+            HotKeyStatus.Text = Loc.T("Str.Settings.NeedModifier");
             return;
         }
 
@@ -168,9 +226,9 @@ public partial class SettingsWindow : Window
                         current.Value.Modifiers == _hotKeyModifiers &&
                         current.Value.Key == _hotKeyKey;
 
-        HotKeyStatus.Text = _app.HotKeyRegistrationFailed && unchanged
-            ? "このキーは他のアプリまたは Windows が使用しているため登録できませんでした。別のキーに変更してください。"
-            : "他のアプリと競合する場合は、別の組み合わせに変更してください。";
+        HotKeyStatus.Text = Loc.T(_app.HotKeyRegistrationFailed && unchanged
+            ? "Str.Settings.HotKeyInUse"
+            : "Str.Settings.HotKeyConflictHint");
     }
 
     // ------------------------------------------------------------- アイコン
@@ -180,16 +238,16 @@ public partial class SettingsWindow : Window
     {
         var browsers = BrowserFaviconCache.DetectAvailableBrowsers();
         return browsers.Count == 0
-            ? "このPCでは対象のブラウザが見つかりませんでした。"
-            : "見つかったブラウザ: " + string.Join("、", browsers);
+            ? Loc.T("Str.Settings.NoBrowsers")
+            : Loc.T("Str.Settings.BrowsersFound", string.Join(Loc.T("Str.Common.ListSeparator"), browsers));
     }
 
     private void OnCleanIcons(object sender, RoutedEventArgs e)
     {
         var removed = _app.Icons.CleanUpUnusedIcons();
         CleanIconsResult.Text = removed == 0
-            ? "整理の必要はありませんでした。"
-            : $"{removed} 個のアイコンファイルを削除しました。";
+            ? Loc.T("Str.Settings.CleanNone")
+            : Loc.T("Str.Settings.CleanDone", removed);
     }
 
     // ------------------------------------------------------------- データ
@@ -203,7 +261,7 @@ public partial class SettingsWindow : Window
     private void OnOpenLog(object sender, RoutedEventArgs e)
     {
         if (System.IO.File.Exists(AppPaths.LogFile)) LaunchService.OpenPath(AppPaths.LogFile);
-        else MessageBox.Show(this, "ログファイルはまだありません。", "ログ",
+        else MessageBox.Show(this, Loc.T("Str.Settings.NoLog"), Loc.T("Str.Settings.LogTitle"),
             MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
@@ -211,21 +269,31 @@ public partial class SettingsWindow : Window
     {
         var dialog = new OpenFolderDialog
         {
-            Title = "データの保存場所を選択",
+            Title = Loc.T("Str.Settings.ChooseDataFolder"),
             InitialDirectory = AppPaths.DataDirectory,
         };
         if (dialog.ShowDialog(this) != true) return;
 
         _pendingDataDirectory = dialog.FolderName;
         _resetDataDirectory = false;
-        DataPathText.Text = $"{AppPaths.DataDirectory}\n→ 次回起動から: {_pendingDataDirectory}";
+        UpdateDataPathText();
     }
 
     private void OnResetDataFolder(object sender, RoutedEventArgs e)
     {
         _pendingDataDirectory = null;
         _resetDataDirectory = true;
-        DataPathText.Text = $"{AppPaths.DataDirectory}\n→ 次回起動から: {AppPaths.DefaultDataDirectory}（既定）";
+        UpdateDataPathText();
+    }
+
+    /// <summary>保存場所の表示。変更を予約していれば「次回起動から」を添える。</summary>
+    private void UpdateDataPathText()
+    {
+        DataPathText.Text = _resetDataDirectory
+            ? Loc.T("Str.Settings.NextLaunchDefault", AppPaths.DataDirectory, AppPaths.DefaultDataDirectory)
+            : _pendingDataDirectory is not null
+                ? Loc.T("Str.Settings.NextLaunch", AppPaths.DataDirectory, _pendingDataDirectory)
+                : AppPaths.DataDirectory;
     }
 
     // ---------------------------------------------------------------- 保存
@@ -234,6 +302,7 @@ public partial class SettingsWindow : Window
     {
         var s = _settings.Current.Clone();
 
+        s.Language = SelectedLanguage;
         s.Theme = ThemeCombo.SelectedIndex == 1 ? AppTheme.Dark : AppTheme.Light;
         s.ViewMode = ViewModeCombo.SelectedIndex == 1 ? ShortcutViewMode.List : ShortcutViewMode.Card;
         s.IconSize = TagValue(IconSizeCombo, 32);
@@ -249,20 +318,19 @@ public partial class SettingsWindow : Window
 
         _settings.Save(s);
         _app.ApplyTheme(s.Theme);
+        Loc.Apply(s.Language);
 
         if (!_app.RegisterHotKeyFromSettings())
         {
             MessageBox.Show(this,
-                $"ホットキー {HotKeyService.Describe(_hotKeyModifiers, _hotKeyKey)} を登録できませんでした。\n\n" +
-                "他のアプリまたは Windows が同じキーを使用している可能性があります。" +
-                "設定画面から別の組み合わせに変更してください。",
-                "ホットキー", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Loc.T("Str.Settings.HotKeyFailed", HotKeyService.Describe(_hotKeyModifiers, _hotKeyKey)),
+                Loc.T("Str.Settings.HotKeyTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
         if (StartupService.IsEnabled() != s.RunAtStartup && !StartupService.SetEnabled(s.RunAtStartup))
         {
-            MessageBox.Show(this, "自動起動の設定を変更できませんでした。",
-                "自動起動", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, Loc.T("Str.Settings.StartupFailed"),
+                Loc.T("Str.Settings.StartupTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
         if (_resetDataDirectory || _pendingDataDirectory is not null)
@@ -270,17 +338,14 @@ public partial class SettingsWindow : Window
             try
             {
                 AppPaths.SaveDataDirectoryOverride(_resetDataDirectory ? null : _pendingDataDirectory);
-                MessageBox.Show(this,
-                    "データの保存場所を変更しました。次回このアプリを起動したときから有効になります。\n\n" +
-                    "現在のデータは自動では移動しません。必要であれば、いったんエクスポートしてから" +
-                    "新しい場所でインポートしてください。",
-                    "保存場所", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, Loc.T("Str.Settings.LocationChanged"),
+                    Loc.T("Str.Settings.LocationTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
                 AppLog.Error("保存場所の変更に失敗しました。", ex);
-                MessageBox.Show(this, $"保存場所を変更できませんでした。\n\n{ex.Message}",
-                    "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(this, Loc.T("Str.Settings.LocationFailed", ex.Message),
+                    Loc.T("Str.Common.Error"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -289,8 +354,15 @@ public partial class SettingsWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        // キャンセルで閉じたときは、プレビュー用に変えていたテーマを元に戻す
-        if (DialogResult != true) _app.ApplyTheme(_settings.Current.Theme);
+        Loc.LanguageChanged -= OnAppLanguageChanged;
+
+        // キャンセルで閉じたときは、プレビュー用に変えていたテーマと言語を元に戻す
+        if (DialogResult != true)
+        {
+            _app.ApplyTheme(_settings.Current.Theme);
+            Loc.Apply(_settings.Current.Language);
+        }
+
         base.OnClosed(e);
     }
 }

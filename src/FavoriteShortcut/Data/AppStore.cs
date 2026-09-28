@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using FavoriteShortcut.Models;
 using Microsoft.Data.Sqlite;
+using FavoriteShortcut.Services;
 
 namespace FavoriteShortcut.Data;
 
@@ -332,6 +333,16 @@ public sealed class AppStore : IDisposable
         return siblings.Count == 0 ? 0 : siblings.Max(f => f.SortOrder) + 1;
     }
 
+    /// <summary>
+    /// 表示言語を切り替えたあとに呼ぶ。「未分類」など言語で変わる表示を作り直し、
+    /// 検索の索引も更新させる。
+    /// </summary>
+    public void RefreshLocalizedTexts()
+    {
+        RebuildFolderTree();
+        RaiseChanged();
+    }
+
     /// <summary>親子関係と表示用フルパスを作り直す。</summary>
     public void RebuildFolderTree()
     {
@@ -356,7 +367,7 @@ public sealed class AppStore : IDisposable
         foreach (var s in _shortcuts.Values)
             s.FolderPathText = s.FolderId is not null && _folders.TryGetValue(s.FolderId, out var sf)
                 ? sf.FullPath
-                : "未分類";
+                : Loc.T("Str.Folder.Uncategorized");
     }
 
     private string BuildFullPath(FolderItem folder)
@@ -396,7 +407,7 @@ public sealed class AppStore : IDisposable
 
         _shortcuts[item.Id] = item;
         Shortcuts.Add(item);
-        item.FolderPathText = FindFolder(item.FolderId)?.FullPath ?? "未分類";
+        item.FolderPathText = FindFolder(item.FolderId)?.FullPath ?? Loc.T("Str.Folder.Uncategorized");
         item.SearchIndex = null;
         RaiseChanged();
     }
@@ -420,7 +431,7 @@ public sealed class AppStore : IDisposable
         }
 
         CleanUpOrphanTags();
-        item.FolderPathText = FindFolder(item.FolderId)?.FullPath ?? "未分類";
+        item.FolderPathText = FindFolder(item.FolderId)?.FullPath ?? Loc.T("Str.Folder.Uncategorized");
         item.SearchIndex = null;
         RaiseChanged();
     }
@@ -461,7 +472,7 @@ public sealed class AppStore : IDisposable
         cmd.Parameters.AddWithValue("$id", item.Id);
         cmd.ExecuteNonQuery();
 
-        item.FolderPathText = FindFolder(folderId)?.FullPath ?? "未分類";
+        item.FolderPathText = FindFolder(folderId)?.FullPath ?? Loc.T("Str.Folder.Uncategorized");
         item.SearchIndex = null;
         RaiseChanged();
     }

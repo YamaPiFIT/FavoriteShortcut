@@ -11,7 +11,7 @@ namespace FavoriteShortcut.Views;
 public partial class FolderPickerWindow : Window
 {
     private readonly SpecialFolderNode _uncategorized =
-        new(SpecialFolderKind.Uncategorized, "未分類（フォルダに入れない）", "◇");
+        new(SpecialFolderKind.Uncategorized, "Str.Folder.UncategorizedChoice", "◇");
 
     public FolderPickerWindow(AppStore store, string? currentFolderId)
     {
