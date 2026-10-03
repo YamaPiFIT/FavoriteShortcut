@@ -61,11 +61,15 @@
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{DynamicResource Str.Settings.Theme}"
                                    Style="{StaticResource RowLabel}" Margin="0,12,12,0" />
-                        <ComboBox x:Name="ThemeCombo" Grid.Row="2" Grid.Column="1" Margin="0,12,0,0"
-                                  SelectionChanged="OnThemeChanged">
-                            <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeLight}" />
-                            <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeDark}" />
-                        </ComboBox>
+                        <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,12,0,0">
+                            <ComboBox x:Name="ThemeCombo" SelectionChanged="OnThemeChanged">
+                                <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeAuto}" Tag="2" />
+                                <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeLight}" Tag="0" />
+                                <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeDark}" Tag="1" />
+                            </ComboBox>
+                            <TextBlock x:Name="ThemeNote" Style="{StaticResource CaptionText}"
+                                       TextWrapping="Wrap" Margin="2,6,0,0" />
+                        </StackPanel>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="{DynamicResource Str.Settings.ViewMode}"
                                    Style="{StaticResource RowLabel}" Margin="0,12,12,0" />

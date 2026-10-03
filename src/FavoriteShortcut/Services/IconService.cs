@@ -442,7 +442,7 @@ public sealed class IconService : IDisposable
     {
         try
         {
-            var dark = _settings.Current.Theme == AppTheme.Dark;
+            var dark = SystemTheme.IsDark(_settings.Current.Theme);
 
             using var stream = new MemoryStream(data);
             var decoder = BitmapDecoder.Create(

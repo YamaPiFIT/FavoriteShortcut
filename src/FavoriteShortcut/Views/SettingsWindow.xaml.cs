@@ -51,7 +51,7 @@ public partial class SettingsWindow : Window
         var s = _settings.Current;
 
         SelectByTag(LanguageCombo, (int)s.Language, fallbackIndex: 0);
-        ThemeCombo.SelectedIndex = s.Theme == AppTheme.Dark ? 1 : 0;
+        SelectByTag(ThemeCombo, (int)s.Theme, fallbackIndex: 0);
         ViewModeCombo.SelectedIndex = s.ViewMode == ShortcutViewMode.List ? 1 : 0;
         SelectByTag(IconSizeCombo, s.IconSize, fallbackIndex: 1);
         SelectByTag(MaxResultsCombo, s.LauncherMaxResults, fallbackIndex: 2);
@@ -79,6 +79,9 @@ public partial class SettingsWindow : Window
     private void RefreshLocalizedTexts()
     {
         LanguageNote.Text = Loc.DescribeAutoDetection();
+        ThemeNote.Text = Loc.T("Str.Settings.ThemeAutoNote", Loc.T(SystemTheme.WindowsUsesDarkMode()
+            ? "Str.Settings.ThemeDark"
+            : "Str.Settings.ThemeLight"));
 
         foreach (var obj in MaxResultsCombo.Items)
         {
@@ -150,6 +153,15 @@ public partial class SettingsWindow : Window
             ? parsed
             : fallback;
 
+    private AppTheme SelectedTheme
+    {
+        get
+        {
+            var value = TagValue(ThemeCombo, (int)AppTheme.Auto);
+            return Enum.IsDefined(typeof(AppTheme), value) ? (AppTheme)value : AppTheme.Auto;
+        }
+    }
+
     private AppLanguage SelectedLanguage
     {
         get
@@ -165,7 +177,7 @@ public partial class SettingsWindow : Window
     private void OnThemeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_loaded) return;
-        _app.ApplyTheme(ThemeCombo.SelectedIndex == 1 ? AppTheme.Dark : AppTheme.Light);
+        _app.ApplyTheme(SelectedTheme);
     }
 
     /// <summary>言語も選んだ瞬間に切り替える（キャンセルすれば元に戻る）。</summary>
@@ -368,7 +380,7 @@ public partial class SettingsWindow : Window
         var s = _settings.Current.Clone();
 
         s.Language = SelectedLanguage;
-        s.Theme = ThemeCombo.SelectedIndex == 1 ? AppTheme.Dark : AppTheme.Light;
+        s.Theme = SelectedTheme;
         s.ViewMode = ViewModeCombo.SelectedIndex == 1 ? ShortcutViewMode.List : ShortcutViewMode.Card;
         s.IconSize = TagValue(IconSizeCombo, 32);
         s.LauncherMaxResults = TagValue(MaxResultsCombo, 12);

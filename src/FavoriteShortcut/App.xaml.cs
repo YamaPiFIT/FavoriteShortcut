@@ -102,6 +102,7 @@ public partial class App : Application
 
         HookWindowTheme();
         ApplyTheme(Settings.Current.Theme);
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
 
         if (Store.AllFolders.Count == 0 && Store.Shortcuts.Count == 0)
             SeedInitialData();
@@ -257,12 +258,33 @@ public partial class App : Application
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    /// <summary>今ダークで表示しているか（「自動」の場合は Windows の配色から決まる）。</summary>
+    public bool IsDarkTheme { get; private set; }
+
+    /// <summary>最後に適用したテーマ設定（設定画面での試し表示を含む）。</summary>
+    private AppTheme _appliedTheme;
+
     public void ApplyTheme(AppTheme theme)
     {
-        var source = new Uri(theme == AppTheme.Dark ? "Themes/Dark.xaml" : "Themes/Light.xaml",
-            UriKind.Relative);
+        _appliedTheme = theme;
+        IsDarkTheme = SystemTheme.IsDark(theme);
+
+        var source = new Uri(IsDarkTheme ? "Themes/Dark.xaml" : "Themes/Light.xaml", UriKind.Relative);
         Resources.MergedDictionaries[0] = new ResourceDictionary { Source = source };
-        WindowThemeHelper.ApplyToAll(theme == AppTheme.Dark);
+        WindowThemeHelper.ApplyToAll(IsDarkTheme);
+    }
+
+    /// <summary>
+    /// テーマが「自動」のとき、起動中に Windows の配色が変わったら追従する。
+    /// （設定 → 個人用設定 → 色 で切り替えると WM_SETTINGCHANGE が届く）
+    /// </summary>
+    private void OnUserPreferenceChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (_shuttingDown || _appliedTheme != AppTheme.Auto) return;
+            if (SystemTheme.IsDark(AppTheme.Auto) != IsDarkTheme) ApplyTheme(AppTheme.Auto);
+        });
     }
 
     /// <summary>
@@ -275,7 +297,7 @@ public partial class App : Application
             new RoutedEventHandler((sender, _) =>
             {
                 if (sender is Window window)
-                    WindowThemeHelper.Apply(window, Settings.Current.Theme == AppTheme.Dark);
+                    WindowThemeHelper.Apply(window, IsDarkTheme);
             }));
     }
 
@@ -448,6 +470,7 @@ public partial class App : Application
                 _tray = null;
             }
 
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
             HotKeys?.Dispose();
             AutoBackup?.Dispose();
             Icons?.Dispose();

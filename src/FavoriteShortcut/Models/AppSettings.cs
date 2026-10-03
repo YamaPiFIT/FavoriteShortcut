@@ -6,10 +6,12 @@ public enum ShortcutViewMode
     List = 1,
 }
 
+/// <summary>配色。Auto は Windows のアプリの配色（ライト / ダーク）に合わせる。</summary>
 public enum AppTheme
 {
     Light = 0,
     Dark = 1,
+    Auto = 2,
 }
 
 /// <summary>表示言語。Auto は Windows の表示言語に合わせる。</summary>
@@ -28,7 +30,8 @@ public sealed class AppSettings
     /// <summary>カード/リストのアイコン表示サイズ（px）。</summary>
     public int IconSize { get; set; } = 32;
 
-    public AppTheme Theme { get; set; } = AppTheme.Light;
+    /// <summary>配色。既定は Windows の配色に合わせる（今まで使っていた人は保存済みの設定のまま）。</summary>
+    public AppTheme Theme { get; set; } = AppTheme.Auto;
 
     /// <summary>表示言語。既定は Windows の表示言語に合わせる。</summary>
     public AppLanguage Language { get; set; } = AppLanguage.Auto;

@@ -14,6 +14,7 @@ internal static class FeatureTests
     {
         AutoBackupTests();
         ClipboardTests();
+        ThemeTests();
     }
 
     private static (Database Db, AppStore Store) NewStore(string fileName)
@@ -190,6 +191,44 @@ internal static class FeatureTests
                 var reloaded = new SettingsService(store).Current;
                 AssertEqual(s.ClipboardHotKeyModifiers, reloaded.ClipboardHotKeyModifiers, "修飾キー");
                 AssertEqual(s.ClipboardHotKeyKey, reloaded.ClipboardHotKeyKey, "キー");
+            });
+        }
+    }
+
+    // ------------------------------------------------------- テーマの「自動」
+
+    private static void ThemeTests()
+    {
+        Group("テーマの「自動」");
+
+        Test("ライト / ダークは設定どおり", () =>
+        {
+            AssertTrue(!SystemTheme.IsDark(AppTheme.Light), "ライト");
+            AssertTrue(SystemTheme.IsDark(AppTheme.Dark), "ダーク");
+        });
+
+        Test("「自動」は Windows のアプリの配色に従う", () =>
+            AssertEqual(SystemTheme.WindowsUsesDarkMode(), SystemTheme.IsDark(AppTheme.Auto), "自動"));
+
+        Test("新しく使い始めるときの既定は「自動」", () =>
+            AssertEqual(AppTheme.Auto, new AppSettings().Theme, "既定"));
+
+        var (db, store) = NewStore("theme-settings-test.sqlite");
+        using (db)
+        {
+            Test("今まで使っていた人の設定（ライト）はそのまま", () =>
+            {
+                store.SaveSettingsRaw(new Dictionary<string, string> { ["theme"] = "0" });
+                AssertEqual(AppTheme.Light, new SettingsService(store).Current.Theme, "テーマ");
+            });
+
+            Test("「自動」を保存して、次回も読み込める", () =>
+            {
+                var service = new SettingsService(store);
+                var s = service.Current.Clone();
+                s.Theme = AppTheme.Auto;
+                service.Save(s);
+                AssertEqual(AppTheme.Auto, new SettingsService(store).Current.Theme, "テーマ");
             });
         }
     }
