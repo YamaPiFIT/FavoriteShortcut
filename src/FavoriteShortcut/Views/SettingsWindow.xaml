@@ -44,6 +44,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <!-- 言語。「日本語」「English」は常にその言語自身の表記で出し、
@@ -61,26 +62,25 @@
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{DynamicResource Str.Settings.Theme}"
                                    Style="{StaticResource RowLabel}" Margin="0,12,12,0" />
-                        <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,12,0,0">
-                            <ComboBox x:Name="ThemeCombo" SelectionChanged="OnThemeChanged">
-                                <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeAuto}" Tag="2" />
-                                <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeLight}" Tag="0" />
-                                <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeDark}" Tag="1" />
-                            </ComboBox>
-                            <TextBlock x:Name="ThemeNote" Style="{StaticResource CaptionText}"
-                                       TextWrapping="Wrap" Margin="2,6,0,0" />
-                        </StackPanel>
+                        <ComboBox x:Name="ThemeCombo" Grid.Row="2" Grid.Column="1" Margin="0,12,0,0"
+                                  SelectionChanged="OnThemeChanged">
+                            <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeAuto}" Tag="2" />
+                            <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeLight}" Tag="0" />
+                            <ComboBoxItem Content="{DynamicResource Str.Settings.ThemeDark}" Tag="1" />
+                        </ComboBox>
+                        <TextBlock x:Name="ThemeNote" Grid.Row="3" Grid.Column="1"
+                                   Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="2,6,0,0" />
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{DynamicResource Str.Settings.ViewMode}"
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{DynamicResource Str.Settings.ViewMode}"
                                    Style="{StaticResource RowLabel}" Margin="0,12,12,0" />
-                        <ComboBox x:Name="ViewModeCombo" Grid.Row="3" Grid.Column="1" Margin="0,12,0,0">
+                        <ComboBox x:Name="ViewModeCombo" Grid.Row="4" Grid.Column="1" Margin="0,12,0,0">
                             <ComboBoxItem Content="{DynamicResource Str.Main.CardViewTooltip}" />
                             <ComboBoxItem Content="{DynamicResource Str.Main.ListViewTooltip}" />
                         </ComboBox>
 
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{DynamicResource Str.Settings.IconSize}"
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="{DynamicResource Str.Settings.IconSize}"
                                    Style="{StaticResource RowLabel}" Margin="0,12,12,0" />
-                        <ComboBox x:Name="IconSizeCombo" Grid.Row="4" Grid.Column="1" Margin="0,12,0,0">
+                        <ComboBox x:Name="IconSizeCombo" Grid.Row="5" Grid.Column="1" Margin="0,12,0,0">
                             <ComboBoxItem Content="{DynamicResource Str.Settings.IconSmall}" Tag="24" />
                             <ComboBoxItem Content="{DynamicResource Str.Settings.IconNormal}" Tag="32" />
                             <ComboBoxItem Content="{DynamicResource Str.Settings.IconLarge}" Tag="48" />
