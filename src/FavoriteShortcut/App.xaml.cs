@@ -1,6 +1,8 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using FavoriteShortcut.Data;
 using FavoriteShortcut.Models;
 using FavoriteShortcut.Services;
@@ -32,6 +34,9 @@ public partial class App : Application
 
     /// <summary>ホットキーの登録に失敗したまま起動した場合 true（設定画面で注意表示）。</summary>
     public bool HotKeyRegistrationFailed { get; private set; }
+
+    /// <summary>「クリップボードから登録」のホットキーの登録に失敗した場合 true。</summary>
+    public bool ClipboardHotKeyRegistrationFailed { get; private set; }
 
     /// <summary>
     /// 終了処理に入ったかどうか。各ウィンドウは、これが true のときは
@@ -103,8 +108,10 @@ public partial class App : Application
 
         HotKeys = new HotKeyService();
         HotKeys.HotKeyPressed += (_, _) => ToggleLauncher();
+        HotKeys.ClipboardHotKeyPressed += (_, _) => RegisterFromClipboard();
         HotKeys.ShowRequested += (_, _) => ShowMainWindow();
         RegisterHotKeyFromSettings();
+        RegisterClipboardHotKeyFromSettings();
 
         CreateTrayIcon();
         AutoBackup.Start();
@@ -135,6 +142,15 @@ public partial class App : Application
         var key = (Key)Settings.Current.HotKeyKey;
         var ok = HotKeys.Register(modifiers, key);
         HotKeyRegistrationFailed = !ok;
+        return ok;
+    }
+
+    public bool RegisterClipboardHotKeyFromSettings()
+    {
+        var modifiers = (ModifierKeys)Settings.Current.ClipboardHotKeyModifiers;
+        var key = (Key)Settings.Current.ClipboardHotKeyKey;
+        var ok = HotKeys.RegisterClipboard(modifiers, key);
+        ClipboardHotKeyRegistrationFailed = !ok;
         return ok;
     }
 
@@ -176,6 +192,71 @@ public partial class App : Application
         _launcherWindow.ShowLauncher();
     }
 
+    private ShortcutEditWindow? _clipboardDialog;
+
+    /// <summary>
+    /// コピーした URL / パスを入れた状態で登録画面を開く（トレイ・ランチャー・ホットキーから）。
+    /// 管理画面が開いていれば、そこから登録する（選んでいるフォルダに入る）。
+    /// </summary>
+    public void RegisterFromClipboard()
+    {
+        // ホットキーを続けて押したときは、開いている登録画面を前に出すだけにする
+        if (_clipboardDialog is not null)
+        {
+            BringToFront(_clipboardDialog);
+            return;
+        }
+
+        if (_mainWindow is { IsVisible: true } main && main.WindowState != WindowState.Minimized)
+        {
+            main.Activate();
+            main.RegisterFromClipboard();
+            return;
+        }
+
+        var targets = ClipboardTargets.Read();
+        if (targets.Count > 1)
+        {
+            // 複数のファイルは、管理画面へドロップしたときと同じ流れで登録する
+            ShowMainWindow();
+            _mainWindow?.RegisterFromClipboard();
+            return;
+        }
+
+        // 管理画面は出さずに、登録画面だけを前に出す（他のアプリを使っている途中でも邪魔にならないように）
+        var dialog = new ShortcutEditWindow(null, null, targets.Count == 1 ? targets[0] : null)
+        {
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            ShowInTaskbar = true,
+        };
+        dialog.ContentRendered += (_, _) => BringToFront(dialog);
+
+        _clipboardDialog = dialog;
+        try
+        {
+            dialog.ShowDialog();
+        }
+        finally
+        {
+            _clipboardDialog = null;
+        }
+    }
+
+    /// <summary>
+    /// ホットキーやトレイから開いたウィンドウを前面に出す。
+    /// 他のアプリを操作中に呼ばれるため、Activate() だけでは前面に来ないことがある。
+    /// </summary>
+    private static void BringToFront(Window window)
+    {
+        window.Activate();
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle != IntPtr.Zero) SetForegroundWindow(handle);
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     public void ApplyTheme(AppTheme theme)
     {
         var source = new Uri(theme == AppTheme.Dark ? "Themes/Dark.xaml" : "Themes/Light.xaml",
@@ -209,6 +290,7 @@ public partial class App : Application
             menu.Opening += (_, _) => RebuildRecentTrayItems(menu);
             AddTrayItem(menu, "Str.Tray.OpenMain", ShowMainWindow);
             AddTrayItem(menu, "Str.Tray.ShowLauncher", ShowLauncher);
+            AddTrayItem(menu, "Str.Tray.AddFromClipboard", RegisterFromClipboard);
             menu.Items.Add(new Forms.ToolStripSeparator());
             AddTrayItem(menu, "Str.Tray.Settings", OpenSettings);
             menu.Items.Add(new Forms.ToolStripSeparator());

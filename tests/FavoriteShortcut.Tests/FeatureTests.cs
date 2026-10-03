@@ -13,6 +13,7 @@ internal static class FeatureTests
     public static void Run()
     {
         AutoBackupTests();
+        ClipboardTests();
     }
 
     private static (Database Db, AppStore Store) NewStore(string fileName)
@@ -121,6 +122,74 @@ internal static class FeatureTests
                 store.AddShortcut(Web("オフの後に追加", "https://example.com/off"));
 
                 AssertTrue(service.GetDueFingerprint(day1.AddDays(60)) is null, "作らない");
+            });
+        }
+    }
+
+    // ------------------------------------------------------- クリップボードから登録
+
+    private static void ClipboardTests()
+    {
+        Group("クリップボードから登録");
+
+        Test("URL はそのまま登録候補になる", () =>
+            AssertEqual("https://example.com/a?b=c", ClipboardTargets.FromText("https://example.com/a?b=c"), "URL"));
+
+        Test("前後の空白や改行は取り除く", () =>
+            AssertEqual("https://example.com/", ClipboardTargets.FromText("  https://example.com/  \r\n"), "URL"));
+
+        Test("複数行のときは 1 行目だけを使う", () =>
+            AssertEqual("https://example.com/first",
+                ClipboardTargets.FromText("https://example.com/first\r\nhttps://example.com/second"), "URL"));
+
+        Test("スキームのないアドレスも登録候補になる", () =>
+            AssertEqual("www.example.co.jp/path", ClipboardTargets.FromText("www.example.co.jp/path"), "アドレス"));
+
+        Test("空白を含むパスも登録候補になる", () =>
+            AssertEqual(@"C:\Program Files\App\app.exe", ClipboardTargets.FromText(@"C:\Program Files\App\app.exe"), "パス"));
+
+        Test("エクスプローラーの「パスのコピー」の引用符は取り除く", () =>
+            AssertEqual(@"C:\Users\Public\Documents", ClipboardTargets.FromText("\"C:\\Users\\Public\\Documents\""), "パス"));
+
+        Test("共有フォルダのパス（UNC）も登録候補になる", () =>
+            AssertEqual(@"\\server\share\folder", ClipboardTargets.FromText(@"\\server\share\folder"), "UNC"));
+
+        Test("普通の文章は登録候補にしない", () =>
+        {
+            AssertTrue(ClipboardTargets.FromText("今日の会議は 10:30 から") is null, "空白を含む文章");
+            AssertTrue(ClipboardTargets.FromText("hello") is null, "単語");
+            AssertTrue(ClipboardTargets.FromText("memo:abc") is null, "「〇〇:」で始まるだけの文字列");
+        });
+
+        Test("空や長すぎる文字列は登録候補にしない", () =>
+        {
+            AssertTrue(ClipboardTargets.FromText(null) is null, "null");
+            AssertTrue(ClipboardTargets.FromText("   ") is null, "空白だけ");
+            AssertTrue(ClipboardTargets.FromText("https://example.com/" + new string('a', 3000)) is null, "長すぎる");
+        });
+
+        Test("呼び出しキーは既定では割り当てない", () =>
+        {
+            var settings = new AppSettings();
+            AssertEqual(0, settings.ClipboardHotKeyKey, "キー");
+            AssertTrue(new HotKeyService().RegisterClipboard(System.Windows.Input.ModifierKeys.None,
+                System.Windows.Input.Key.None), "未設定なら登録処理は成功扱い");
+        });
+
+        var (db, store) = NewStore("clipboard-settings-test.sqlite");
+        using (db)
+        {
+            Test("設定した呼び出しキーは保存され、次回も読み込まれる", () =>
+            {
+                var service = new SettingsService(store);
+                var s = service.Current.Clone();
+                s.ClipboardHotKeyModifiers = (int)(System.Windows.Input.ModifierKeys.Control | System.Windows.Input.ModifierKeys.Alt);
+                s.ClipboardHotKeyKey = (int)System.Windows.Input.Key.R;
+                service.Save(s);
+
+                var reloaded = new SettingsService(store).Current;
+                AssertEqual(s.ClipboardHotKeyModifiers, reloaded.ClipboardHotKeyModifiers, "修飾キー");
+                AssertEqual(s.ClipboardHotKeyKey, reloaded.ClipboardHotKeyKey, "キー");
             });
         }
     }

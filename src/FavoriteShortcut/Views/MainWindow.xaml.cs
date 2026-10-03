@@ -582,6 +582,25 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void OnNewShortcut(object sender, ExecutedRoutedEventArgs e) => CreateShortcut(null);
 
+    /// <summary>Ctrl+V: コピーした URL / パスを入れた状態で登録画面を開く（入力欄では通常の貼り付け）。</summary>
+    private void OnPasteShortcut(object sender, ExecutedRoutedEventArgs e) => RegisterFromClipboard();
+
+    /// <summary>
+    /// コピーした URL / パスを入れた状態で登録画面を開く。選んでいるフォルダに登録する。
+    /// エクスプローラーで複数のファイルをコピーしていれば、ドロップしたときと同じくまとめて登録する。
+    /// </summary>
+    internal void RegisterFromClipboard()
+    {
+        var targets = ClipboardTargets.Read();
+        if (targets.Count > 1)
+        {
+            ImportDroppedPaths(targets, _scope is FolderItem f ? f.Id : null);
+            return;
+        }
+
+        CreateShortcut(targets.Count == 1 ? targets[0] : null);
+    }
+
     private void CreateShortcut(string? initialTarget)
     {
         var folderId = _scope is FolderItem f ? f.Id : null;

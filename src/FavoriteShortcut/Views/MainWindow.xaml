@@ -199,11 +199,13 @@
     <Window.InputBindings>
         <KeyBinding Key="F" Modifiers="Control" Command="{x:Static ApplicationCommands.Find}" />
         <KeyBinding Key="N" Modifiers="Control" Command="{x:Static ApplicationCommands.New}" />
+        <KeyBinding Key="V" Modifiers="Control" Command="{x:Static ApplicationCommands.Paste}" />
     </Window.InputBindings>
 
     <Window.CommandBindings>
         <CommandBinding Command="{x:Static ApplicationCommands.Find}" Executed="OnFocusSearch" />
         <CommandBinding Command="{x:Static ApplicationCommands.New}" Executed="OnNewShortcut" />
+        <CommandBinding Command="{x:Static ApplicationCommands.Paste}" Executed="OnPasteShortcut" />
     </Window.CommandBindings>
 
     <Grid>

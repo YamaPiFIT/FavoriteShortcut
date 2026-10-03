@@ -110,6 +110,33 @@
                         <TextBlock x:Name="HotKeyStatus" Style="{StaticResource CaptionText}"
                                    TextWrapping="Wrap" Margin="150,8,0,0" />
 
+                        <!-- クリップボードから登録。他のアプリのキーと競合しやすいので、既定は未設定 -->
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{DynamicResource Str.Settings.ClipboardHotKey}"
+                                       Style="{StaticResource RowLabel}" TextWrapping="Wrap" />
+                            <Border Grid.Column="1" CornerRadius="6" MinHeight="32"
+                                    Background="{DynamicResource InputBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderStrongBrush}" BorderThickness="1">
+                                <TextBlock x:Name="ClipboardHotKeyText" VerticalAlignment="Center" Margin="10,0"
+                                           FontWeight="SemiBold" />
+                            </Border>
+                            <Button x:Name="ClipboardCaptureButton" Grid.Column="2" Content="{DynamicResource Str.Settings.Change}"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                    Click="OnCaptureClipboardHotKey" MinWidth="80" />
+                            <Button Grid.Column="3" Content="{DynamicResource Str.Settings.ClearHotKey}"
+                                    Style="{StaticResource GhostButton}" Margin="4,0,0,0"
+                                    Click="OnClearClipboardHotKey" />
+                        </Grid>
+
+                        <TextBlock x:Name="ClipboardHotKeyStatus" Style="{StaticResource CaptionText}"
+                                   TextWrapping="Wrap" Margin="150,8,0,0" />
+
                         <CheckBox x:Name="ShowRecentCheck" Margin="0,14,0,0"
                                   Content="{DynamicResource Str.Settings.ShowRecent}" />
 

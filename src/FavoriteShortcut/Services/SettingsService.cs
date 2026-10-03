@@ -34,6 +34,8 @@ public sealed class SettingsService
         s.Language = GetEnum(raw, "language", s.Language);
         s.HotKeyModifiers = GetInt(raw, "hotkey_modifiers", s.HotKeyModifiers);
         s.HotKeyKey = GetInt(raw, "hotkey_key", s.HotKeyKey);
+        s.ClipboardHotKeyModifiers = GetInt(raw, "clipboard_hotkey_modifiers", s.ClipboardHotKeyModifiers);
+        s.ClipboardHotKeyKey = GetInt(raw, "clipboard_hotkey_key", s.ClipboardHotKeyKey);
         s.MinimizeToTray = GetBool(raw, "minimize_to_tray", s.MinimizeToTray);
         s.StartMinimized = GetBool(raw, "start_minimized", s.StartMinimized);
         s.RunAtStartup = GetBool(raw, "run_at_startup", s.RunAtStartup);
@@ -60,6 +62,8 @@ public sealed class SettingsService
             ["language"] = ((int)settings.Language).ToString(CultureInfo.InvariantCulture),
             ["hotkey_modifiers"] = settings.HotKeyModifiers.ToString(CultureInfo.InvariantCulture),
             ["hotkey_key"] = settings.HotKeyKey.ToString(CultureInfo.InvariantCulture),
+            ["clipboard_hotkey_modifiers"] = settings.ClipboardHotKeyModifiers.ToString(CultureInfo.InvariantCulture),
+            ["clipboard_hotkey_key"] = settings.ClipboardHotKeyKey.ToString(CultureInfo.InvariantCulture),
             ["minimize_to_tray"] = settings.MinimizeToTray ? "1" : "0",
             ["start_minimized"] = settings.StartMinimized ? "1" : "0",
             ["run_at_startup"] = settings.RunAtStartup ? "1" : "0",

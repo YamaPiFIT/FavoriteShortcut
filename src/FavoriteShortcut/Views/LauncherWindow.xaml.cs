@@ -233,6 +233,13 @@ public partial class LauncherWindow : Window
                 MoveSelection(Keyboard.Modifiers == ModifierKeys.Shift ? -1 : 1);
                 e.Handled = true;
                 break;
+
+            case Key.N when Keyboard.Modifiers == ModifierKeys.Control:
+                // コピーした URL / パスを入れた状態で登録画面を開く
+                HideLauncher();
+                _app.RegisterFromClipboard();
+                e.Handled = true;
+                break;
         }
     }
 

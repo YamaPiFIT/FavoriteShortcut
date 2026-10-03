@@ -17,9 +17,19 @@ public partial class SettingsWindow : Window
     private readonly App _app = App.Instance;
     private readonly SettingsService _settings;
 
+    /// <summary>キー入力を待っている呼び出しキー。</summary>
+    private enum HotKeyTarget
+    {
+        None,
+        Launcher,
+        Clipboard,
+    }
+
     private ModifierKeys _hotKeyModifiers;
     private Key _hotKeyKey;
-    private bool _capturing;
+    private ModifierKeys _clipboardHotKeyModifiers;
+    private Key _clipboardHotKeyKey;
+    private HotKeyTarget _capturing;
     private string? _pendingDataDirectory;
     private bool _resetDataDirectory;
     private bool _loaded;
@@ -48,6 +58,8 @@ public partial class SettingsWindow : Window
 
         _hotKeyModifiers = (ModifierKeys)s.HotKeyModifiers;
         _hotKeyKey = (Key)s.HotKeyKey;
+        _clipboardHotKeyModifiers = (ModifierKeys)s.ClipboardHotKeyModifiers;
+        _clipboardHotKeyKey = (Key)s.ClipboardHotKeyKey;
 
         ShowRecentCheck.IsChecked = s.ShowRecentInLauncher;
         MinimizeToTrayCheck.IsChecked = s.MinimizeToTray;
@@ -74,9 +86,10 @@ public partial class SettingsWindow : Window
                 item.Content = Loc.T("Str.Common.CountItems", count);
         }
 
-        if (!_capturing)
+        if (_capturing == HotKeyTarget.None)
         {
             CaptureButton.Content = Loc.T("Str.Settings.Change");
+            ClipboardCaptureButton.Content = Loc.T("Str.Settings.Change");
             UpdateHotKeyDisplay();
         }
 
@@ -166,31 +179,49 @@ public partial class SettingsWindow : Window
 
     // ------------------------------------------------------------- ホットキー
 
-    private void OnCaptureHotKey(object sender, RoutedEventArgs e)
+    private void OnCaptureHotKey(object sender, RoutedEventArgs e) => ToggleCapturing(HotKeyTarget.Launcher);
+
+    private void OnCaptureClipboardHotKey(object sender, RoutedEventArgs e) => ToggleCapturing(HotKeyTarget.Clipboard);
+
+    /// <summary>「クリップボードから登録」のキーを未設定に戻す。</summary>
+    private void OnClearClipboardHotKey(object sender, RoutedEventArgs e)
     {
-        if (_capturing)
+        _clipboardHotKeyModifiers = ModifierKeys.None;
+        _clipboardHotKeyKey = Key.None;
+        StopCapturing();
+    }
+
+    private void ToggleCapturing(HotKeyTarget target)
+    {
+        if (_capturing == target)
         {
             StopCapturing();
             return;
         }
 
-        _capturing = true;
-        CaptureButton.Content = Loc.T("Str.Common.Cancel");
-        HotKeyText.Text = Loc.T("Str.Settings.PressKeys");
-        HotKeyStatus.Text = Loc.T("Str.Settings.CaptureHint");
+        StopCapturing();
+        _capturing = target;
+
+        var (button, text, status) = target == HotKeyTarget.Launcher
+            ? (CaptureButton, HotKeyText, HotKeyStatus)
+            : (ClipboardCaptureButton, ClipboardHotKeyText, ClipboardHotKeyStatus);
+        button.Content = Loc.T("Str.Common.Cancel");
+        text.Text = Loc.T("Str.Settings.PressKeys");
+        status.Text = Loc.T("Str.Settings.CaptureHint");
         Keyboard.Focus(this);
     }
 
     private void StopCapturing()
     {
-        _capturing = false;
+        _capturing = HotKeyTarget.None;
         CaptureButton.Content = Loc.T("Str.Settings.Change");
+        ClipboardCaptureButton.Content = Loc.T("Str.Settings.Change");
         UpdateHotKeyDisplay();
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (!_capturing)
+        if (_capturing == HotKeyTarget.None)
         {
             base.OnPreviewKeyDown(e);
             return;
@@ -213,29 +244,56 @@ public partial class SettingsWindow : Window
             return;
 
         var modifiers = Keyboard.Modifiers;
+        var status = _capturing == HotKeyTarget.Launcher ? HotKeyStatus : ClipboardHotKeyStatus;
         if (modifiers == ModifierKeys.None)
         {
-            HotKeyStatus.Text = Loc.T("Str.Settings.NeedModifier");
+            status.Text = Loc.T("Str.Settings.NeedModifier");
             return;
         }
 
-        _hotKeyModifiers = modifiers;
-        _hotKeyKey = key;
+        // 2 つの呼び出しキーに同じ組み合わせは使えない
+        if (_capturing == HotKeyTarget.Launcher)
+        {
+            if (modifiers == _clipboardHotKeyModifiers && key == _clipboardHotKeyKey)
+            {
+                status.Text = Loc.T("Str.Settings.HotKeySameAsClipboard");
+                return;
+            }
+
+            _hotKeyModifiers = modifiers;
+            _hotKeyKey = key;
+        }
+        else
+        {
+            if (modifiers == _hotKeyModifiers && key == _hotKeyKey)
+            {
+                status.Text = Loc.T("Str.Settings.HotKeySameAsLauncher");
+                return;
+            }
+
+            _clipboardHotKeyModifiers = modifiers;
+            _clipboardHotKeyKey = key;
+        }
+
         StopCapturing();
     }
 
     private void UpdateHotKeyDisplay()
     {
+        // 登録に失敗したキーをそのまま表示しているときだけ、使用中である旨を出す
         HotKeyText.Text = HotKeyService.Describe(_hotKeyModifiers, _hotKeyKey);
-
-        var current = _app.HotKeys.Current;
-        var unchanged = current is not null &&
-                        current.Value.Modifiers == _hotKeyModifiers &&
-                        current.Value.Key == _hotKeyKey;
-
-        HotKeyStatus.Text = Loc.T(_app.HotKeyRegistrationFailed && unchanged
+        var launcherUnchanged = (ModifierKeys)_settings.Current.HotKeyModifiers == _hotKeyModifiers &&
+                                (Key)_settings.Current.HotKeyKey == _hotKeyKey;
+        HotKeyStatus.Text = Loc.T(_app.HotKeyRegistrationFailed && launcherUnchanged
             ? "Str.Settings.HotKeyInUse"
             : "Str.Settings.HotKeyConflictHint");
+
+        ClipboardHotKeyText.Text = HotKeyService.Describe(_clipboardHotKeyModifiers, _clipboardHotKeyKey);
+        var clipboardUnchanged = (ModifierKeys)_settings.Current.ClipboardHotKeyModifiers == _clipboardHotKeyModifiers &&
+                                 (Key)_settings.Current.ClipboardHotKeyKey == _clipboardHotKeyKey;
+        ClipboardHotKeyStatus.Text = Loc.T(_app.ClipboardHotKeyRegistrationFailed && clipboardUnchanged
+            ? "Str.Settings.HotKeyInUse"
+            : "Str.Settings.ClipboardHotKeyNote");
     }
 
     // ------------------------------------------------------------- アイコン
@@ -316,6 +374,8 @@ public partial class SettingsWindow : Window
         s.LauncherMaxResults = TagValue(MaxResultsCombo, 12);
         s.HotKeyModifiers = (int)_hotKeyModifiers;
         s.HotKeyKey = (int)_hotKeyKey;
+        s.ClipboardHotKeyModifiers = (int)_clipboardHotKeyModifiers;
+        s.ClipboardHotKeyKey = (int)_clipboardHotKeyKey;
         s.ShowRecentInLauncher = ShowRecentCheck.IsChecked == true;
         s.MinimizeToTray = MinimizeToTrayCheck.IsChecked == true;
         s.StartMinimized = StartMinimizedCheck.IsChecked == true;
@@ -328,10 +388,21 @@ public partial class SettingsWindow : Window
         _app.ApplyTheme(s.Theme);
         Loc.Apply(s.Language);
 
+        // 2 つのキーを入れ替えた場合に備え、先に「クリップボードから登録」を解除してから登録し直す
+        _app.HotKeys.RegisterClipboard(ModifierKeys.None, Key.None);
+
         if (!_app.RegisterHotKeyFromSettings())
         {
             MessageBox.Show(this,
                 Loc.T("Str.Settings.HotKeyFailed", HotKeyService.Describe(_hotKeyModifiers, _hotKeyKey)),
+                Loc.T("Str.Settings.HotKeyTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
+        if (!_app.RegisterClipboardHotKeyFromSettings())
+        {
+            MessageBox.Show(this,
+                Loc.T("Str.Settings.ClipboardHotKeyFailed",
+                    HotKeyService.Describe(_clipboardHotKeyModifiers, _clipboardHotKeyKey)),
                 Loc.T("Str.Settings.HotKeyTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 

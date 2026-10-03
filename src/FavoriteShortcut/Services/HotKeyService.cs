@@ -9,12 +9,14 @@ namespace FavoriteShortcut.Services;
 ///
 /// 他のアプリを操作中でも反応する必要があるため、メッセージ専用ウィンドウを 1 つ作り、
 /// Win32 の RegisterHotKey / WM_HOTKEY で受け取る。
+/// ランチャーの呼び出しと「クリップボードから登録」の 2 つを扱う。
 /// 同じウィンドウで「二重起動されたときに既存のウィンドウを前面に出す」メッセージも受ける。
 /// </summary>
 public sealed class HotKeyService : IDisposable
 {
     private const int WM_HOTKEY = 0x0312;
-    private const int HotKeyId = 0xA731;
+    private const int LauncherHotKeyId = 0xA731;
+    private const int ClipboardHotKeyId = 0xA732;
 
     private const int HWND_BROADCAST = 0xFFFF;
     private const int WS_POPUP = unchecked((int)0x80000000);
@@ -30,13 +32,21 @@ public sealed class HotKeyService : IDisposable
     public static readonly uint ShowWindowMessage = RegisterWindowMessage("FavoriteShortcut_ShowMainWindow");
 
     private HwndSource? _source;
-    private bool _registered;
+    private readonly HashSet<int> _registered = new();
 
+    /// <summary>ランチャーのホットキーが押された。</summary>
     public event EventHandler? HotKeyPressed;
+
+    /// <summary>「クリップボードから登録」のホットキーが押された。</summary>
+    public event EventHandler? ClipboardHotKeyPressed;
+
     public event EventHandler? ShowRequested;
 
-    /// <summary>現在登録されているホットキー。未登録なら null。</summary>
+    /// <summary>現在登録されているランチャーのホットキー。未登録なら null。</summary>
     public (ModifierKeys Modifiers, Key Key)? Current { get; private set; }
+
+    /// <summary>現在登録されている「クリップボードから登録」のホットキー。未登録なら null。</summary>
+    public (ModifierKeys Modifiers, Key Key)? ClipboardCurrent { get; private set; }
 
     public void Initialize()
     {
@@ -59,13 +69,38 @@ public sealed class HotKeyService : IDisposable
     }
 
     /// <summary>
-    /// ホットキーを登録し直す。成功したら true。
+    /// ランチャーのホットキーを登録し直す。成功したら true。
     /// 他アプリが同じキーを使っている場合は false（設定画面で別のキーを選んでもらう）。
     /// </summary>
     public bool Register(ModifierKeys modifiers, Key key)
     {
+        var ok = RegisterCore(LauncherHotKeyId, modifiers, key, "グローバルホットキー");
+        Current = ok ? (modifiers, key) : null;
+        return ok;
+    }
+
+    /// <summary>
+    /// 「クリップボードから登録」のホットキーを登録し直す。成功したら true。
+    /// キーが未設定（既定）の場合は解除だけして true を返す。
+    /// </summary>
+    public bool RegisterClipboard(ModifierKeys modifiers, Key key)
+    {
+        if (key == Key.None)
+        {
+            UnregisterCore(ClipboardHotKeyId);
+            ClipboardCurrent = null;
+            return true;
+        }
+
+        var ok = RegisterCore(ClipboardHotKeyId, modifiers, key, "「クリップボードから登録」のホットキー");
+        ClipboardCurrent = ok ? (modifiers, key) : null;
+        return ok;
+    }
+
+    private bool RegisterCore(int id, ModifierKeys modifiers, Key key, string purpose)
+    {
         Initialize();
-        Unregister();
+        UnregisterCore(id);
 
         if (key == Key.None) return false;
 
@@ -73,35 +108,41 @@ public sealed class HotKeyService : IDisposable
         var vk = (uint)KeyInterop.VirtualKeyFromKey(key);
         if (vk == 0) return false;
 
-        _registered = RegisterHotKey(_source!.Handle, HotKeyId, mods, vk);
-        if (_registered)
+        if (RegisterHotKey(_source!.Handle, id, mods, vk))
         {
-            Current = (modifiers, key);
-            AppLog.Info($"グローバルホットキーを登録しました: {Describe(modifiers, key)}");
-        }
-        else
-        {
-            Current = null;
-            AppLog.Warn($"グローバルホットキーを登録できませんでした: {Describe(modifiers, key)}");
+            _registered.Add(id);
+            AppLog.Info($"{purpose}を登録しました: {Describe(modifiers, key)}");
+            return true;
         }
 
-        return _registered;
+        AppLog.Warn($"{purpose}を登録できませんでした: {Describe(modifiers, key)}");
+        return false;
     }
 
+    /// <summary>ランチャーのホットキーを解除する。</summary>
     public void Unregister()
     {
-        if (!_registered || _source is null) return;
-        UnregisterHotKey(_source.Handle, HotKeyId);
-        _registered = false;
+        UnregisterCore(LauncherHotKeyId);
         Current = null;
+    }
+
+    private void UnregisterCore(int id)
+    {
+        if (_source is null || !_registered.Remove(id)) return;
+        UnregisterHotKey(_source.Handle, id);
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == WM_HOTKEY && wParam.ToInt32() == HotKeyId)
+        if (msg == WM_HOTKEY && wParam.ToInt32() == LauncherHotKeyId)
         {
             handled = true;
             HotKeyPressed?.Invoke(this, EventArgs.Empty);
+        }
+        else if (msg == WM_HOTKEY && wParam.ToInt32() == ClipboardHotKeyId)
+        {
+            handled = true;
+            ClipboardHotKeyPressed?.Invoke(this, EventArgs.Empty);
         }
         else if (ShowWindowMessage != 0 && msg == ShowWindowMessage)
         {
@@ -145,6 +186,8 @@ public sealed class HotKeyService : IDisposable
     public void Dispose()
     {
         Unregister();
+        UnregisterCore(ClipboardHotKeyId);
+        ClipboardCurrent = null;
         _source?.RemoveHook(WndProc);
         _source?.Dispose();
         _source = null;

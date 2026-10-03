@@ -39,6 +39,15 @@ public sealed class AppSettings
     /// <summary>ランチャー用グローバルホットキー（System.Windows.Input.Key の値）。</summary>
     public int HotKeyKey { get; set; } = 18; // Key.Space
 
+    /// <summary>「クリップボードから登録」用グローバルホットキー（ModifierKeys の値）。</summary>
+    public int ClipboardHotKeyModifiers { get; set; }
+
+    /// <summary>
+    /// 「クリップボードから登録」用グローバルホットキー（Key の値）。
+    /// 他のアプリのキーと競合しやすいため、既定は未設定（Key.None）で、利用者が設定で割り当てる。
+    /// </summary>
+    public int ClipboardHotKeyKey { get; set; }
+
     /// <summary>ウィンドウを閉じたときにタスクトレイへ常駐するか。</summary>
     public bool MinimizeToTray { get; set; } = true;
 
