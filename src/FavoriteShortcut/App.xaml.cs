@@ -205,7 +205,8 @@ public partial class App : Application
         try
         {
             // 言語を切り替えたときに文言を差し替えられるよう、項目とキーを対にして持つ
-            var menu = new Forms.ContextMenuStrip();
+            var menu = new Forms.ContextMenuStrip { ShowItemToolTips = true };
+            menu.Opening += (_, _) => RebuildRecentTrayItems(menu);
             AddTrayItem(menu, "Str.Tray.OpenMain", ShowMainWindow);
             AddTrayItem(menu, "Str.Tray.ShowLauncher", ShowLauncher);
             menu.Items.Add(new Forms.ToolStripSeparator());
@@ -234,6 +235,67 @@ public partial class App : Application
     {
         var item = menu.Items.Add(Loc.T(key), null, (_, _) => Dispatcher.Invoke(action));
         _trayItems.Add((item, key));
+    }
+
+    private const int TrayRecentCount = 10;
+    private const int TrayTitleMaxLength = 40;
+
+    private readonly List<Forms.ToolStripItem> _recentTrayItems = new();
+
+    /// <summary>
+    /// トレイのメニューの先頭に「最近使った項目」を並べる。
+    /// メニューを開くたびに作り直すので、常に最新の状態になる。
+    /// </summary>
+    private void RebuildRecentTrayItems(Forms.ContextMenuStrip menu)
+    {
+        foreach (var old in _recentTrayItems)
+        {
+            menu.Items.Remove(old);
+            old.Dispose();
+        }
+        _recentTrayItems.Clear();
+
+        _recentTrayItems.Add(new Forms.ToolStripMenuItem(Loc.T("Str.Launcher.Recent")) { Enabled = false });
+
+        var recent = SearchService.Recent(Store.Shortcuts, TrayRecentCount);
+        if (recent.Count == 0)
+        {
+            _recentTrayItems.Add(new Forms.ToolStripMenuItem(Loc.T("Str.Tray.NoRecent")) { Enabled = false });
+        }
+
+        foreach (var shortcut in recent)
+        {
+            var title = shortcut.DisplayTitle;
+            if (title.Length > TrayTitleMaxLength) title = title[..TrayTitleMaxLength] + "…";
+
+            // & はメニューのアクセスキーの印になるので、文字として表示するよう重ねる
+            var item = new Forms.ToolStripMenuItem(title.Replace("&", "&&")) { ToolTipText = shortcut.Target };
+            item.Click += (_, _) => Dispatcher.Invoke(() => OpenFromTray(shortcut));
+            _recentTrayItems.Add(item);
+        }
+
+        _recentTrayItems.Add(new Forms.ToolStripSeparator());
+
+        for (var i = 0; i < _recentTrayItems.Count; i++)
+            menu.Items.Insert(i, _recentTrayItems[i]);
+    }
+
+    private void OpenFromTray(ShortcutItem item)
+    {
+        // メニューを開いている間に削除された項目は開かない
+        if (Store.FindShortcut(item.Id) is null) return;
+
+        var result = LaunchService.Launch(item);
+        if (result.Success)
+        {
+            Store.RecordUsage(item);
+            Icons.ScheduleRecheckAfterLaunch(item);
+            return;
+        }
+
+        MessageBox.Show(
+            $"{result.ErrorTitle}\n\n{result.ErrorDetail}\n\n{Loc.T("Str.Launch.Kept")}",
+            Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     /// <summary>

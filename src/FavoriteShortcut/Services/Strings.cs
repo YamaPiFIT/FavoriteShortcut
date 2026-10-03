@@ -62,6 +62,7 @@ public static class Strings
         ("Str.Tray.ShowLauncher", "ランチャーを表示(&L)", "Show &Launcher"),
         ("Str.Tray.Settings", "設定(&S)", "&Settings"),
         ("Str.Tray.Exit", "終了(&X)", "E&xit"),
+        ("Str.Tray.NoRecent", "（まだありません）", "(None yet)"),
         ("Str.Database.TooNew",
             "データベースのバージョン ({0}) がこのアプリ ({1}) より新しいため開けません。新しいバージョンのアプリをご使用ください。",
             "This database (version {0}) was created by a newer version of the app (this app supports version {1}). Please use a newer version of the app."),
