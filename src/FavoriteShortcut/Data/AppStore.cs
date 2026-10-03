@@ -37,15 +37,76 @@ public sealed class AppStore : IDisposable
 
     public IReadOnlyCollection<FolderItem> AllFolders => _folders.Values;
 
-    /// <summary>構成が変わったときに上がる。検索インデックスの無効化などに使う。</summary>
+    /// <summary>構成が変わったときに上がる。画面はこれを受けて一覧を作り直す。</summary>
     public event EventHandler? DataChanged;
 
+    /// <summary>
+    /// 全件を読み直したときに増える番号。検索の索引はこれと照合して作り直す。
+    /// 1 件ずつの変更では増やさない（索引は項目ごとに変更を検知して作り直すため）。
+    /// </summary>
     public int Revision { get; private set; }
+
+    // まとめて変更している間（BeginBatch〜Dispose）は、通知と後片付けを最後に 1 回だけ行う
+    private int _batchDepth;
+    private bool _changedInBatch;
+    private bool _treeDirty;
+    private bool _orphanTagsDirty;
 
     private void RaiseChanged()
     {
-        Revision++;
+        if (_batchDepth > 0)
+        {
+            _changedInBatch = true;
+            return;
+        }
+
         DataChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 複数件をまとめて変更するときに使う（取り込み・複数削除など）。
+    /// 1 件ごとに DataChanged を上げると、そのたびに画面の一覧が全件作り直されて
+    /// 件数に比例して遅くなるため、using を抜けた時点で 1 回だけ通知する。
+    /// DB への書き込みは従来どおり 1 件ずつ即時に行う。
+    /// </summary>
+    public IDisposable BeginBatch()
+    {
+        _batchDepth++;
+        return new BatchScope(this);
+    }
+
+    private void EndBatch()
+    {
+        if (--_batchDepth > 0) return;
+
+        try
+        {
+            if (_orphanTagsDirty) CleanUpOrphanTags();
+            if (_treeDirty) RebuildFolderTree();
+        }
+        finally
+        {
+            // 途中で失敗しても、そこまでの変更は画面に反映させる
+            if (_changedInBatch)
+            {
+                _changedInBatch = false;
+                RaiseChanged();
+            }
+        }
+    }
+
+    private sealed class BatchScope : IDisposable
+    {
+        private AppStore? _owner;
+
+        public BatchScope(AppStore owner) => _owner = owner;
+
+        public void Dispose()
+        {
+            var owner = _owner;
+            _owner = null;
+            owner?.EndBatch();
+        }
     }
 
     // ------------------------------------------------------------------ load
@@ -56,6 +117,7 @@ public sealed class AppStore : IDisposable
         LoadTags();
         LoadShortcuts();
         RebuildFolderTree();
+        Revision++;
         RaiseChanged();
     }
 
@@ -177,7 +239,19 @@ public sealed class AppStore : IDisposable
         cmd.ExecuteNonQuery();
 
         _folders[folder.Id] = folder;
-        RebuildFolderTree();
+
+        if (_batchDepth > 0)
+        {
+            // ツリーの組み直しは最後に 1 回だけ行う。続けて登録するショートカットの
+            // フォルダ表示や重複判定に使うので、フルパスだけはここで決めておく。
+            folder.FullPath = BuildFullPath(folder);
+            _treeDirty = true;
+        }
+        else
+        {
+            RebuildFolderTree();
+        }
+
         RaiseChanged();
         return folder;
     }
@@ -277,14 +351,19 @@ public sealed class AppStore : IDisposable
 
     public List<FolderItem> CollectFolderAndDescendants(FolderItem folder)
     {
+        // 親ごとの子を先に引けるようにしておく（フォルダごとに全件をなめると件数の 2 乗で遅くなる）
+        var childrenOf = _folders.Values.ToLookup(f => f.ParentId, StringComparer.Ordinal);
+
         var result = new List<FolderItem> { folder };
+        var visited = new HashSet<string>(StringComparer.Ordinal) { folder.Id };
         var queue = new Queue<FolderItem>();
         queue.Enqueue(folder);
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            foreach (var child in _folders.Values.Where(f => f.ParentId == current.Id))
+            foreach (var child in childrenOf[current.Id])
             {
+                if (!visited.Add(child.Id)) continue;
                 result.Add(child);
                 queue.Enqueue(child);
             }
@@ -334,8 +413,8 @@ public sealed class AppStore : IDisposable
     }
 
     /// <summary>
-    /// 表示言語を切り替えたあとに呼ぶ。「未分類」など言語で変わる表示を作り直し、
-    /// 検索の索引も更新させる。
+    /// 表示言語を切り替えたあとに呼ぶ。「未分類」など言語で変わる表示を作り直す
+    /// （表示が変わった項目は、検索の索引も次の検索時に作り直される）。
     /// </summary>
     public void RefreshLocalizedTexts()
     {
@@ -346,6 +425,8 @@ public sealed class AppStore : IDisposable
     /// <summary>親子関係と表示用フルパスを作り直す。</summary>
     public void RebuildFolderTree()
     {
+        _treeDirty = false;
+
         foreach (var f in _folders.Values) f.Children.Clear();
 
         var byParent = _folders.Values
@@ -590,6 +671,14 @@ public sealed class AppStore : IDisposable
     /// <summary>どのショートカットからも参照されなくなったタグを削除する。</summary>
     public void CleanUpOrphanTags()
     {
+        // まとめて変更している間は、最後に 1 回だけ行う
+        if (_batchDepth > 0)
+        {
+            _orphanTagsDirty = true;
+            return;
+        }
+
+        _orphanTagsDirty = false;
         using var cmd = _db.CreateCommand(
             "DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM shortcut_tags)");
         if (cmd.ExecuteNonQuery() > 0) LoadTags();
@@ -601,6 +690,7 @@ public sealed class AppStore : IDisposable
         newName = newName.Trim();
         if (newName.Length == 0 || string.Equals(oldName, newName, StringComparison.Ordinal)) return;
 
+        using var batch = BeginBatch();
         foreach (var s in _shortcuts.Values.ToList())
         {
             if (!s.Tags.Any(t => string.Equals(t, oldName, StringComparison.OrdinalIgnoreCase))) continue;
@@ -618,6 +708,7 @@ public sealed class AppStore : IDisposable
 
     public void DeleteTag(string name)
     {
+        using var batch = BeginBatch();
         foreach (var s in _shortcuts.Values.ToList())
         {
             if (!s.Tags.Any(t => string.Equals(t, name, StringComparison.OrdinalIgnoreCase))) continue;

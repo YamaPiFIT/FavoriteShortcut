@@ -46,6 +46,31 @@ public sealed class IconService : IDisposable
     private readonly SemaphoreSlim _throttle = new(4, 4);
     private readonly BrowserFaviconCache _browserCache = new();
 
+    /// <summary>
+    /// icons/ にあるファイル名の一覧。favicon の有無を調べるたびに
+    /// ディスクを見に行かないためのもの。null なら次に必要になったときに読み直す。
+    /// </summary>
+    private HashSet<string>? _iconFiles;
+    private readonly object _iconFilesGate = new();
+
+    private static readonly string[] FaviconExtensions = { ".png", ".ico", ".jpg", ".gif", ".bmp" };
+
+    /// <summary>
+    /// フォルダ / ファイルが存在するかの確認結果（キー: "d|パス" または "f|パス"）。
+    ///
+    /// 一覧を作り直すたびに UI スレッドで存在確認をすると、件数が多いときや
+    /// つながらない共有フォルダがあるときに画面が固まる。そこで 2 回目以降は
+    /// 前回の結果ですぐに表示し、確認し直しは裏で行う（変わっていればアイコンを差し替える）。
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ExistenceState> _existence = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _existenceChecks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _existenceThrottle = new(2, 2);
+
+    /// <summary>同じパスの存在を確認し直す間隔。</summary>
+    private const long ExistenceRecheckMs = 5000;
+
+    private readonly record struct ExistenceState(bool Exists, long CheckedAt);
+
     public IconService(AppStore store, SettingsService settings)
     {
         _store = store;
@@ -84,10 +109,126 @@ public sealed class IconService : IDisposable
     /// </summary>
     public void Attach(ShortcutItem item)
     {
-        item.Icon = ResolveSync(item);
+        item.Icon = ResolveForList(item);
 
         if (item.TargetType == TargetType.Web && string.IsNullOrEmpty(item.IconPath))
             _ = EnsureFaviconAsync(item, force: false);
+    }
+
+    /// <summary>
+    /// 一覧に表示するアイコン。<see cref="ResolveSync"/> と同じ結果になるが、
+    /// フォルダ / ファイルの存在確認には前回の結果を使い、確認し直しは裏で行う。
+    /// </summary>
+    private ImageSource ResolveForList(ShortcutItem item)
+    {
+        if (!string.IsNullOrEmpty(item.IconPath))
+        {
+            var loaded = LoadFromCache(item.IconPath);
+            if (loaded is not null) return loaded;
+        }
+
+        var path = TargetResolver.Expand(item.Target ?? string.Empty);
+        return item.TargetType switch
+        {
+            TargetType.Folder => ShellIconProvider.GetFolderIcon(path, KnownExists(path, folder: true)) ?? DefaultIcons.Folder,
+            TargetType.File => ShellIconProvider.GetFileIcon(path, KnownExists(path, folder: false)) ?? DefaultIcons.File,
+            TargetType.Application => ShellIconProvider.GetFileIcon(path, KnownExists(path, folder: false)) ?? DefaultIcons.For(TargetType.Application),
+            TargetType.Web => DefaultIcons.Web,
+            _ => DefaultIcons.Unknown,
+        };
+    }
+
+    /// <summary>
+    /// パスが存在するか。前回の確認結果があればそれを返し、古くなっていれば裏で確認し直す。
+    /// </summary>
+    private bool KnownExists(string path, bool folder)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        var key = (folder ? "d|" : "f|") + path;
+        var now = Environment.TickCount64;
+
+        if (_existence.TryGetValue(key, out var known))
+        {
+            if (now - known.CheckedAt >= ExistenceRecheckMs) QueueExistenceCheck(key, path, folder);
+            return known.Exists;
+        }
+
+        // 初めて表示するパス。ローカルはその場で確かめ、最初から正しいアイコンを出す。
+        // ネットワーク上のパスはつながらないと長く待たされるので、いったん「無い」ものとして
+        // 表示し、裏で確かめてからアイコンを差し替える。
+        if (IsNetworkPath(path))
+        {
+            _existence[key] = new ExistenceState(false, now);
+            QueueExistenceCheck(key, path, folder);
+            return false;
+        }
+
+        var exists = folder ? Directory.Exists(path) : File.Exists(path);
+        _existence[key] = new ExistenceState(exists, Environment.TickCount64);
+        return exists;
+    }
+
+    /// <summary>UNC パス（\\server\share）またはネットワークドライブ上のパスか。</summary>
+    private static bool IsNetworkPath(string path)
+    {
+        if (path.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+
+        if (path.Length >= 2 && path[1] == ':' && char.IsAsciiLetter(path[0]))
+        {
+            // ドライブの種類はドライブ自体に触らずに分かる
+            try { return new DriveInfo(path[..1]).DriveType == DriveType.Network; }
+            catch { return false; }
+        }
+
+        return false;
+    }
+
+    private void QueueExistenceCheck(string key, string path, bool folder)
+    {
+        if (!_existenceChecks.TryAdd(key, 0)) return; // 確認中
+
+        _ = Task.Run(async () =>
+        {
+            await _existenceThrottle.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var exists = folder ? Directory.Exists(path) : File.Exists(path);
+                var changed = !_existence.TryGetValue(key, out var before) || before.Exists != exists;
+                _existence[key] = new ExistenceState(exists, Environment.TickCount64);
+
+                if (changed) RefreshIconsForPath(path);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"存在確認に失敗しました: {path}", ex);
+            }
+            finally
+            {
+                _existenceThrottle.Release();
+                _existenceChecks.TryRemove(key, out _);
+            }
+        });
+    }
+
+    /// <summary>存在確認の結果が変わったパスについて、表示中のアイコンを差し替える。</summary>
+    private void RefreshIconsForPath(string path)
+    {
+        var app = System.Windows.Application.Current;
+        if (app is null) return; // 終了処理中
+
+        app.Dispatcher.InvokeAsync(() =>
+        {
+            foreach (var item in _store.Shortcuts)
+            {
+                if (item.Icon is null) continue; // まだ表示していない項目は、表示するときに解決される
+                if (item.TargetType is not (TargetType.Folder or TargetType.File or TargetType.Application)) continue;
+                if (!string.Equals(TargetResolver.Expand(item.Target ?? string.Empty), path, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                item.Icon = ResolveForList(item);
+            }
+        });
     }
 
     /// <summary>その場で決まるアイコン（保存済みファイル / シェル / 既定）を返す。</summary>
@@ -159,6 +300,8 @@ public sealed class IconService : IDisposable
     {
         _memoryCache.Clear();
         _failed.Clear();
+        _existence.Clear();
+        ForgetIconFileList();
         ShellIconProvider.ClearCache();
     }
 
@@ -172,15 +315,18 @@ public sealed class IconService : IDisposable
     {
         if (item.TargetType != TargetType.Web) return;
 
-        var pageUri = TargetResolver.TryGetUri(item.Target);
+        // 一覧を表示するたびに呼ばれるので、URL の解析結果は項目ごとに覚えておく
+        var web = GetWebTargetInfo(item);
+
+        var pageUri = web.PageUri;
         if (pageUri is null) return;
         if (pageUri.Scheme != Uri.UriSchemeHttp && pageUri.Scheme != Uri.UriSchemeHttps) return;
 
         // http と https、ポート違いは別サイトなのでオリジン単位でキャッシュする
-        var origin = TargetResolver.TryGetOrigin(item.Target);
+        var origin = web.Origin;
         if (string.IsNullOrEmpty(origin)) return;
 
-        var fileBase = "fav_" + Hash(origin);
+        var fileBase = web.FaviconFileBase!;
 
         if (!force)
         {
@@ -232,7 +378,7 @@ public sealed class IconService : IDisposable
                         if (other.TargetType != TargetType.Web) continue;
                         if (!string.IsNullOrEmpty(other.IconPath) && !other.IconPath.StartsWith("fav_", StringComparison.Ordinal))
                             continue;
-                        if (!string.Equals(TargetResolver.TryGetOrigin(other.Target), origin, StringComparison.OrdinalIgnoreCase))
+                        if (!string.Equals(GetWebTargetInfo(other).Origin, origin, StringComparison.OrdinalIgnoreCase))
                             continue;
                         ApplyIcon(other, saved);
                     }
@@ -385,7 +531,7 @@ public sealed class IconService : IDisposable
     /// 画像バイト列を icons/ に保存し、相対ファイル名を返す。
     /// 一時ファイル経由で置き換えるので、途中で失敗しても壊れたファイルが残らない。
     /// </summary>
-    private static string? SaveIconBytes(byte[] bytes, string fileBase)
+    private string? SaveIconBytes(byte[] bytes, string fileBase)
     {
         var ext = DetectImageExtension(bytes);
         if (ext is null) return null; // SVG など WPF で描けない形式は諦める
@@ -404,20 +550,96 @@ public sealed class IconService : IDisposable
         }
 
         foreach (var old in Directory.EnumerateFiles(AppPaths.IconDirectory, fileBase + ".*"))
-            if (!old.EndsWith(".tmp", StringComparison.Ordinal)) File.Delete(old);
+        {
+            if (old.EndsWith(".tmp", StringComparison.Ordinal)) continue;
+            File.Delete(old);
+            ForgetIconFile(Path.GetFileName(old));
+        }
 
         File.Move(temp, full, overwrite: true);
+        RememberIconFile(fileName);
         return fileName;
     }
 
-    private static string? FindCachedFavicon(string fileBase)
+    private string? FindCachedFavicon(string fileBase)
     {
-        foreach (var ext in new[] { ".png", ".ico", ".jpg", ".gif", ".bmp" })
+        foreach (var ext in FaviconExtensions)
         {
             var name = fileBase + ext;
-            if (File.Exists(FullPath(name))) return name;
+            if (IconFileExists(name)) return name;
         }
         return null;
+    }
+
+    /// <summary>URL の解析結果。項目の URL が変わっていなければ前回の結果を使う。</summary>
+    private static WebTargetInfo GetWebTargetInfo(ShortcutItem item)
+    {
+        var target = item.Target;
+        var info = item.WebTargetInfo;
+        if (info is not null && ReferenceEquals(info.Target, target)) return info;
+
+        var origin = TargetResolver.TryGetOrigin(target);
+        info = new WebTargetInfo
+        {
+            Target = target,
+            PageUri = TargetResolver.TryGetUri(target),
+            Origin = origin,
+            FaviconFileBase = string.IsNullOrEmpty(origin) ? null : "fav_" + Hash(origin),
+        };
+        item.WebTargetInfo = info;
+        return info;
+    }
+
+    // ------------------------------------------------------- icons/ の一覧
+
+    /// <summary>
+    /// icons/ にそのファイルがあるか。一覧はメモリに持っておき、
+    /// 「ある」と判断したときだけ実物を確かめる（無いものを毎回ディスクに問い合わせない）。
+    /// </summary>
+    private bool IconFileExists(string name)
+    {
+        lock (_iconFilesGate)
+        {
+            _iconFiles ??= LoadIconFileNames();
+            if (!_iconFiles.Contains(name)) return false;
+        }
+
+        if (File.Exists(FullPath(name))) return true;
+
+        ForgetIconFile(name);
+        return false;
+    }
+
+    private static HashSet<string> LoadIconFileNames()
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (Directory.Exists(AppPaths.IconDirectory))
+                foreach (var file in Directory.EnumerateFiles(AppPaths.IconDirectory))
+                    names.Add(Path.GetFileName(file));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("アイコンフォルダの一覧を読めませんでした。", ex);
+        }
+        return names;
+    }
+
+    private void RememberIconFile(string name)
+    {
+        lock (_iconFilesGate) _iconFiles?.Add(name);
+    }
+
+    private void ForgetIconFile(string name)
+    {
+        lock (_iconFilesGate) _iconFiles?.Remove(name);
+    }
+
+    /// <summary>一覧を捨てて、次に必要になったときに読み直させる。</summary>
+    private void ForgetIconFileList()
+    {
+        lock (_iconFilesGate) _iconFiles = null;
     }
 
     private async Task<string?> DownloadFaviconAsync(Uri pageUri, string fileBase)
@@ -631,6 +853,7 @@ public sealed class IconService : IDisposable
                 return null;
             }
 
+            RememberIconFile(fileName);
             return fileName;
         }
         catch (Exception ex)
@@ -651,6 +874,7 @@ public sealed class IconService : IDisposable
             _memoryCache.TryRemove(relativeFileName, out _);
             var full = FullPath(relativeFileName);
             if (File.Exists(full)) File.Delete(full);
+            ForgetIconFile(relativeFileName);
         }
         catch (Exception ex)
         {
@@ -683,6 +907,7 @@ public sealed class IconService : IDisposable
         }
 
         _memoryCache.Clear();
+        ForgetIconFileList();
         return removed;
     }
 }

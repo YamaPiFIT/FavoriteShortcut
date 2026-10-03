@@ -4,6 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:models="clr-namespace:FavoriteShortcut.Models"
+        xmlns:controls="clr-namespace:FavoriteShortcut.Controls"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         mc:Ignorable="d"
         Title="{DynamicResource Str.App.Name}"
@@ -180,8 +181,9 @@
             </Border>
         </DataTemplate>
 
+        <!-- 見えている分のカードだけを作る（WrapPanel と同じ並び方） -->
         <ItemsPanelTemplate x:Key="CardPanel">
-            <WrapPanel Orientation="Horizontal" />
+            <controls:VirtualizingWrapPanel />
         </ItemsPanelTemplate>
 
         <ItemsPanelTemplate x:Key="ListPanel">

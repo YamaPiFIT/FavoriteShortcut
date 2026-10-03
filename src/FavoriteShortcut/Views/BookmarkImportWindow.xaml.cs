@@ -216,14 +216,18 @@ public partial class BookmarkImportWindow : Window
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            foreach (var root in selected)
+            // 画面の更新は最後の 1 回にまとめる（1 件ごとに一覧を作り直すと、件数に比例して遅くなる）
+            using (_store.BeginBatch())
             {
-                // 「ブックマーク バー」などの最上位フォルダも、構成を再現するなら作る
-                var rootFolderId = keepStructure
-                    ? _store.CreateFolder(SafeFolderName(root.Name), destinationId).Id
-                    : destinationId;
+                foreach (var root in selected)
+                {
+                    // 「ブックマーク バー」などの最上位フォルダも、構成を再現するなら作る
+                    var rootFolderId = keepStructure
+                        ? _store.CreateFolder(SafeFolderName(root.Name), destinationId).Id
+                        : destinationId;
 
-                ImportChildren(root, rootFolderId, keepStructure, skipDuplicates, existing, tag);
+                    ImportChildren(root, rootFolderId, keepStructure, skipDuplicates, existing, tag);
+                }
             }
         }
         catch (Exception ex)

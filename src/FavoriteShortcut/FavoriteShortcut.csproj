@@ -42,6 +42,11 @@
     <Resource Include="Assets\app.ico" />
   </ItemGroup>
 
+  <!-- 検証プログラムから、検索の索引の使い回しなど内部の動きを確認できるようにする -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="FavoriteShortcut.Tests" />
+  </ItemGroup>
+
   <!-- 配布物に README を同梱し、アプリの「使い方」メニューから開けるようにする -->
   <ItemGroup>
     <None Include="..\..\README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" />

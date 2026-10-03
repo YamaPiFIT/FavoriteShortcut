@@ -138,8 +138,9 @@ public static class SearchService
 
     private static SearchIndexEntry GetIndex(ShortcutItem item, int revision)
     {
+        // タイトル・URL・フォルダ・メモ・タグのどれかが変わった項目だけ作り直す
         var index = item.SearchIndex;
-        if (index is not null && index.Revision == revision) return index;
+        if (index is not null && index.Revision == revision && index.IsBuiltFrom(item)) return index;
 
         index = new SearchIndexEntry
         {
@@ -150,6 +151,11 @@ public static class SearchService
             FolderPath = TextNormalizer.Normalize(item.FolderPathText),
             Note = TextNormalizer.Normalize(item.Note),
             Tags = item.Tags.Select(TextNormalizer.Normalize).ToArray(),
+            SourceTitle = item.Title,
+            SourceTarget = item.Target,
+            SourceFolderPath = item.FolderPathText,
+            SourceNote = item.Note,
+            SourceTags = item.Tags,
         };
         index.FolderSegments = index.FolderPath
             .Split('>', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

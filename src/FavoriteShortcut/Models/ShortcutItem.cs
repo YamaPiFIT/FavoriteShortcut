@@ -121,6 +121,9 @@ public sealed class ShortcutItem : INotifyPropertyChanged
     /// <summary>検索用に正規化済みのキャッシュ。SearchService が管理する。</summary>
     internal SearchIndexEntry? SearchIndex { get; set; }
 
+    /// <summary>URL を解析した結果のキャッシュ（favicon 用）。IconService が管理する。</summary>
+    internal WebTargetInfo? WebTargetInfo { get; set; }
+
     public ShortcutItem Clone() => new()
     {
         Id = Id,
@@ -162,4 +165,29 @@ internal sealed class SearchIndexEntry
     public string Note = string.Empty;
     public string[] Tags = Array.Empty<string>();
     public int Revision = -1;
+
+    // 索引を作ったときの元の値。文字列は書き換えられないので、
+    // 参照が同じなら内容も同じ＝作り直す必要がない（比較はポインタ比較だけで済む）。
+    public string? SourceTitle;
+    public string? SourceTarget;
+    public string? SourceFolderPath;
+    public string? SourceNote;
+    public List<string>? SourceTags;
+
+    public bool IsBuiltFrom(ShortcutItem item) =>
+        ReferenceEquals(SourceTitle, item.Title) &&
+        ReferenceEquals(SourceTarget, item.Target) &&
+        ReferenceEquals(SourceFolderPath, item.FolderPathText) &&
+        ReferenceEquals(SourceNote, item.Note) &&
+        ReferenceEquals(SourceTags, item.Tags);
+}
+
+/// <summary>Web の URL を解析した結果のキャッシュ（一覧を表示するたびに解析し直さないためのもの）。</summary>
+internal sealed class WebTargetInfo
+{
+    /// <summary>解析した URL。項目の URL がこれと別の文字列になったら作り直す。</summary>
+    public string? Target;
+    public Uri? PageUri;
+    public string? Origin;
+    public string? FaviconFileBase;
 }

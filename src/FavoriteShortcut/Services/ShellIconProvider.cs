@@ -20,9 +20,16 @@ internal static class ShellIconProvider
     private static readonly object Gate = new();
 
     /// <summary>フォルダの標準アイコン。</summary>
-    public static ImageSource? GetFolderIcon(string? path)
+    public static ImageSource? GetFolderIcon(string? path) =>
+        GetFolderIcon(path, !string.IsNullOrWhiteSpace(path) && Directory.Exists(path));
+
+    /// <summary>
+    /// フォルダの標準アイコン（存在確認は呼び出し側で済ませたもの）。
+    /// 一覧の表示ではディスクやネットワークを見に行かずに済むよう、こちらを使う。
+    /// </summary>
+    public static ImageSource? GetFolderIcon(string? path, bool exists)
     {
-        var usable = !string.IsNullOrWhiteSpace(path) && Directory.Exists(path);
+        var usable = exists && !string.IsNullOrWhiteSpace(path);
         // 実在するフォルダは固有アイコン（デスクトップ等）を持つことがあるのでパスをキーにする
         var key = usable ? "dir:" + path!.ToLowerInvariant() : "dir:*";
         return GetCached(key, () => usable
@@ -31,12 +38,15 @@ internal static class ShellIconProvider
     }
 
     /// <summary>ファイルのアイコン。EXE/LNK/ICO は実体固有のアイコンを取りに行く。</summary>
-    public static ImageSource? GetFileIcon(string? path)
+    public static ImageSource? GetFileIcon(string? path) =>
+        string.IsNullOrWhiteSpace(path) ? null : GetFileIcon(path, File.Exists(path));
+
+    /// <summary>ファイルのアイコン（存在確認は呼び出し側で済ませたもの）。</summary>
+    public static ImageSource? GetFileIcon(string? path, bool exists)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
 
         var ext = Path.GetExtension(path);
-        var exists = File.Exists(path);
         var perFile = exists && ext is not null &&
                       (ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) ||
                        ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) ||

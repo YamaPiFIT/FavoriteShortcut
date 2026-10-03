@@ -22,9 +22,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private const string FolderDragFormat = "FavoriteShortcut.FolderId";
 
     /// <summary>
-    /// カード表示は WrapPanel のため仮想化が効かない。
-    /// 大量登録時に固まらないよう表示件数を打ち切る（打ち切った場合は画面で通知する）。
-    /// リスト表示は仮想化されるので上限なし。
+    /// カード表示の表示件数の上限（打ち切った場合は画面で通知する）。
+    /// カード表示も見えている分だけ作る仮想化パネルにしたが、表示内容は従来どおりにしている。
+    /// リスト表示は上限なし。
     /// </summary>
     private const int MaxCardItems = 1000;
 
@@ -43,6 +43,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private int _iconSize = 32;
     private Point _dragStart;
     private bool _suppressRefresh;
+
+    /// <summary>タグ一覧に今表示している内容。同じなら作り直さない。</summary>
+    private string? _tagCloudContent;
 
     public MainWindow()
     {
@@ -280,6 +283,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             result = result.Take(MaxCardItems).ToList();
         }
 
+        // まとめて入れ替える（Reset で通知する）方が速いが、リスト表示ではスクロール位置が
+        // 件数の比率で動いてしまい従来と見え方が変わるため、1 件ずつ追加する
         _displayed.Clear();
         foreach (var item in result)
         {
@@ -347,8 +352,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void RefreshTagCloud()
     {
-        TagCloud.Items.Clear();
         var tags = _store.GetTagUsage();
+
+        // 表示するタグ・件数・言語が前回と同じなら、ボタンを作り直さない
+        var content = Loc.Current + "\n" + string.Join("\n", tags.Take(60).Select(t => $"{t.Name}\t{t.Count}"));
+        if (content == _tagCloudContent) return;
+        _tagCloudContent = content;
+
+        TagCloud.Items.Clear();
 
         NoTagsText.Visibility = tags.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -405,6 +416,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 {
                     ShortcutList.Focus();
                     ShortcutList.SelectedIndex = 0;
+
+                    // カード表示は見えている分しかカードを作らないので、先頭が画面外なら先に表示させる
+                    // （以前は全カードがあり、先頭にフォーカスすると画面も先頭へ戻っていた。その動きに合わせる）
+                    if (_settings.Current.ViewMode == ShortcutViewMode.Card &&
+                        ShortcutList.ItemContainerGenerator.ContainerFromIndex(0) is null)
+                    {
+                        ShortcutList.UpdateLayout();
+                        ShortcutList.ScrollIntoView(_displayed[0]);
+                        ShortcutList.UpdateLayout();
+                    }
+
                     if (ShortcutList.ItemContainerGenerator.ContainerFromIndex(0) is ListBoxItem lbi)
                         lbi.Focus();
                     if (e.Key == Key.Enter) OpenSelected();
@@ -618,7 +640,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var dialog = new FolderPickerWindow(_store, items[0].FolderId) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
-        foreach (var item in items) _store.MoveShortcut(item, dialog.SelectedFolderId);
+        // 画面の更新は最後の 1 回にまとめる
+        using (_store.BeginBatch())
+        {
+            foreach (var item in items) _store.MoveShortcut(item, dialog.SelectedFolderId);
+        }
         RefreshList();
     }
 
@@ -636,10 +662,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (MessageBox.Show(this, message + "\n\n" + Loc.T("Str.Common.CannotUndo"), Loc.T("Str.Common.ConfirmDeleteTitle"), MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
             return;
 
-        foreach (var item in items)
+        // 画面の更新は最後の 1 回にまとめる
+        using (_store.BeginBatch())
         {
-            _icons.DeleteCustomIcon(item.IconPath);
-            _store.DeleteShortcut(item);
+            foreach (var item in items)
+            {
+                _icons.DeleteCustomIcon(item.IconPath);
+                _store.DeleteShortcut(item);
+            }
         }
 
         RefreshList();
@@ -786,9 +816,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             if (target is not { } dropTarget) return;
             var ids = (string[])e.Data.GetData(ShortcutDragFormat)!;
-            foreach (var id in ids)
-                if (_store.FindShortcut(id) is { } item)
-                    _store.MoveShortcut(item, dropTarget.FolderId);
+            using (_store.BeginBatch())
+            {
+                foreach (var id in ids)
+                    if (_store.FindShortcut(id) is { } item)
+                        _store.MoveShortcut(item, dropTarget.FolderId);
+            }
             RefreshList();
             return;
         }
@@ -874,16 +907,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 MessageBoxImage.Question) != MessageBoxResult.OK)
             return;
 
-        foreach (var path in paths)
+        using (_store.BeginBatch())
         {
-            var type = TargetResolver.Detect(path);
-            _store.AddShortcut(new ShortcutItem
+            foreach (var path in paths)
             {
-                Title = TargetResolver.SuggestTitle(path, type),
-                Target = path,
-                TargetType = type,
-                FolderId = folderId,
-            });
+                var type = TargetResolver.Detect(path);
+                _store.AddShortcut(new ShortcutItem
+                {
+                    Title = TargetResolver.SuggestTitle(path, type),
+                    Target = path,
+                    TargetType = type,
+                    FolderId = folderId,
+                });
+            }
         }
 
         RefreshList();

@@ -32,6 +32,7 @@ public static class Program
             TextNormalizerTests();
             StoreTests();
             SearchTests();
+            PerformanceTests.Run();
             SettingsTests();
             TransferTests();
             RestartTests();

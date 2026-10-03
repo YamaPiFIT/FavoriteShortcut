@@ -174,12 +174,18 @@ public sealed class ExportImportService
             using var imported = new AppStore(importedDb);
 
             int folders, shortcuts, skipped;
-            if (mode == ImportMode.Replace)
-                (folders, shortcuts, skipped) = ImportReplace(imported, temp);
-            else
-                (folders, shortcuts, skipped) = ImportMerge(imported, temp);
 
-            _store.Reload();
+            // 画面の更新は最後の 1 回にまとめる（1 件ごとに一覧を作り直すと、件数に比例して遅くなる）
+            using (_store.BeginBatch())
+            {
+                if (mode == ImportMode.Replace)
+                    (folders, shortcuts, skipped) = ImportReplace(imported, temp);
+                else
+                    (folders, shortcuts, skipped) = ImportMerge(imported, temp);
+
+                _store.Reload();
+            }
+
             _settings.Reload();
 
             AppLog.Info($"インポート完了 ({mode}): フォルダ {folders} / ショートカット {shortcuts} / スキップ {skipped}");
