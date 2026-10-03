@@ -8,6 +8,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using FavoriteShortcut.Controls;
 using FavoriteShortcut.Data;
 using FavoriteShortcut.Models;
 using FavoriteShortcut.Services;
@@ -52,6 +53,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private object? _shownScope;
 
     private ScrollViewer? _listScroller;
+
+    /// <summary>ドラッグ中に強調表示しているドロップ先のフォルダ。</summary>
+    private TreeViewItem? _dropHighlight;
+    private ScrollViewer? _treeScroller;
 
     public MainWindow()
     {
@@ -794,6 +799,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         var data = new DataObject(ShortcutDragFormat, ids);
         DragDrop.DoDragDrop(ShortcutList, data, DragDropEffects.Move);
+        SetDropHighlight(null);
     }
 
     private void OnTreePreviewMouseDown(object sender, MouseButtonEventArgs e) =>
@@ -809,6 +815,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         var data = new DataObject(FolderDragFormat, folder.Id);
         DragDrop.DoDragDrop(FolderTree, data, DragDropEffects.Move);
+        SetDropHighlight(null);
     }
 
     private bool ExceededDragThreshold(Point current) =>
@@ -818,20 +825,65 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void OnTreeDragOver(object sender, DragEventArgs e)
     {
         e.Effects = DragDropEffects.None;
+        e.Handled = true;
+        AutoScrollTree(e);
 
         var target = DropTargetOf(e);
-        if (target is null && !e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Handled = true; return; }
+        if (target is null && !e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            SetDropHighlight(null);
+            return;
+        }
 
         if (e.Data.GetDataPresent(ShortcutDragFormat)) e.Effects = DragDropEffects.Move;
-        else if (e.Data.GetDataPresent(FolderDragFormat)) e.Effects = DragDropEffects.Move;
+        else if (e.Data.GetDataPresent(FolderDragFormat))
+            e.Effects = CanMoveFolderTo(e, target) ? DragDropEffects.Move : DragDropEffects.None;
         else if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effects = DragDropEffects.Copy;
 
-        e.Handled = true;
+        // ドロップ先のフォルダを強調する（落とせない場所では強調しない）
+        SetDropHighlight(target is not null && e.Effects != DragDropEffects.None
+            ? FindAncestor<TreeViewItem>((DependencyObject)e.OriginalSource)
+            : null);
+    }
+
+    /// <summary>
+    /// ツリーの外へ出たときやドラッグを中止したときに強調を消す。
+    /// ツリーの中で項目の間を移ったときにも届くが、続く DragOver ですぐ付け直される。
+    /// </summary>
+    private void OnTreeDragLeave(object sender, DragEventArgs e) => SetDropHighlight(null);
+
+    private void SetDropHighlight(TreeViewItem? item)
+    {
+        if (ReferenceEquals(_dropHighlight, item)) return;
+        if (_dropHighlight is not null) DropTarget.SetIsActive(_dropHighlight, false);
+        _dropHighlight = item;
+        if (item is not null) DropTarget.SetIsActive(item, true);
+    }
+
+    /// <summary>ドラッグ中のフォルダを移せる先か（自分自身や、自分の配下へは移せない）。</summary>
+    private bool CanMoveFolderTo(DragEventArgs e, (string? FolderId, object Node)? target)
+    {
+        if (target is not { } dropTarget) return false;
+        if (e.Data.GetData(FolderDragFormat) is not string id || _store.FindFolder(id) is not { } folder) return false;
+        return dropTarget.FolderId is null || !_store.IsDescendantOf(dropTarget.FolderId, folder.Id);
+    }
+
+    /// <summary>ドラッグ中にツリーの上端・下端へ近づけたら、その方向へスクロールする（画面外のフォルダへも移せるように）。</summary>
+    private void AutoScrollTree(DragEventArgs e)
+    {
+        _treeScroller ??= FindDescendant<ScrollViewer>(FolderTree);
+        if (_treeScroller is null) return;
+
+        const double edge = 24;
+        var y = e.GetPosition(FolderTree).Y;
+        if (y < edge) _treeScroller.LineUp();
+        else if (y > FolderTree.ActualHeight - edge) _treeScroller.LineDown();
     }
 
     private void OnTreeDrop(object sender, DragEventArgs e)
     {
         e.Handled = true;
+        SetDropHighlight(null);
         var target = DropTargetOf(e);
 
         if (e.Data.GetDataPresent(ShortcutDragFormat))

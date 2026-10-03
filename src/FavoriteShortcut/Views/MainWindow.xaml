@@ -90,6 +90,11 @@
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SurfaceSelectedBrush}" />
                             </Trigger>
+                            <!-- ドラッグ中のドロップ先。選択中の色と区別できるよう、はっきりした色にする -->
+                            <Trigger Property="controls:DropTarget.IsActive" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -305,6 +310,7 @@
                               PreviewMouseLeftButtonDown="OnTreePreviewMouseDown"
                               PreviewMouseMove="OnTreePreviewMouseMove"
                               DragOver="OnTreeDragOver"
+                              DragLeave="OnTreeDragLeave"
                               Drop="OnTreeDrop"
                               PreviewMouseRightButtonDown="OnTreeRightButtonDown"
                               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
