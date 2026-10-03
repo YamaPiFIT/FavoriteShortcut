@@ -45,9 +45,11 @@ build\framework-dependent\FavoriteShortcut.exe   ← .NET が別途必要な版�
 git add -A
 git commit -m "v1.3.0"
 git tag -a v1.3.0 -m "お気に入りショートカット v1.3.0"
-git push origin main --follow-tags
+git push origin main
+git push origin v1.3.0
 ```
 
+タグは main とは別に push してください（同時に push したときに、自動化が起動しなかったことがあります）。
 タグが届くと GitHub の **Actions** タブで「Release」が動き始めます（10 分ほど）。
 テストが失敗した場合はリリースは作られません。Actions の画面でエラーを確認してください。
 
