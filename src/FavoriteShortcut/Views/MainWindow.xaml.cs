@@ -47,6 +47,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     /// <summary>タグ一覧に今表示している内容。同じなら作り直さない。</summary>
     private string? _tagCloudContent;
 
+    /// <summary>一覧に今表示している検索語（正規化したもの）と表示範囲。変わったら一覧を先頭から表示する。</summary>
+    private string? _shownQuery;
+    private object? _shownScope;
+
+    private ScrollViewer? _listScroller;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -283,6 +289,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             result = result.Take(MaxCardItems).ToList();
         }
 
+        // 検索語や表示するフォルダが変わったときは、一覧を先頭から表示する。
+        // 前の一覧のスクロール位置のままだと、検索で上位に来た項目が画面の外に隠れてしまうため。
+        // （登録・削除などで作り直すときは、作業中の位置を保つ）
+        var shownQuery = string.Join(' ', TextNormalizer.SplitTerms(query));
+        var listChanged = _shownQuery is not null &&
+                          (shownQuery != _shownQuery || !ReferenceEquals(_scope, _shownScope));
+        _shownQuery = shownQuery;
+        _shownScope = _scope;
+
         // まとめて入れ替える（Reset で通知する）方が速いが、リスト表示ではスクロール位置が
         // 件数の比率で動いてしまい従来と見え方が変わるため、1 件ずつ追加する
         _displayed.Clear();
@@ -292,7 +307,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _displayed.Add(item);
         }
 
+        if (listChanged) ScrollListToTop();
+
         UpdateHeaderTexts(source.Count, result.Count, truncated, !string.IsNullOrWhiteSpace(query));
+    }
+
+    private void ScrollListToTop()
+    {
+        _listScroller ??= FindDescendant<ScrollViewer>(ShortcutList);
+        _listScroller?.ScrollToTop();
     }
 
     private IEnumerable<ShortcutItem> ScopeItems()
@@ -417,10 +440,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     ShortcutList.Focus();
                     ShortcutList.SelectedIndex = 0;
 
-                    // カード表示は見えている分しかカードを作らないので、先頭が画面外なら先に表示させる
-                    // （以前は全カードがあり、先頭にフォーカスすると画面も先頭へ戻っていた。その動きに合わせる）
-                    if (_settings.Current.ViewMode == ShortcutViewMode.Card &&
-                        ShortcutList.ItemContainerGenerator.ContainerFromIndex(0) is null)
+                    // 一覧は見えている分しか項目を作らないので、先頭が画面外なら先に表示させる
+                    // （見えていない項目が選ばれたり、Enter で開いたりしないように）
+                    if (ShortcutList.ItemContainerGenerator.ContainerFromIndex(0) is null)
                     {
                         ShortcutList.UpdateLayout();
                         ShortcutList.ScrollIntoView(_displayed[0]);
@@ -1089,6 +1111,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     // ------------------------------------------------------------- ユーティリティ
+
+    private static T? FindDescendant<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T found) return found;
+            if (FindDescendant<T>(child) is { } nested) return nested;
+        }
+        return null;
+    }
 
     private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
     {
