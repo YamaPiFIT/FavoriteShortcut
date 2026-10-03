@@ -41,6 +41,7 @@ public sealed class SettingsService
         s.ShowRecentInLauncher = GetBool(raw, "launcher_show_recent", s.ShowRecentInLauncher);
         s.LauncherMaxResults = Math.Clamp(GetInt(raw, "launcher_max_results", s.LauncherMaxResults), 3, 50);
         s.RestoreLastFolder = GetBool(raw, "restore_last_folder", s.RestoreLastFolder);
+        s.AutoBackup = GetBool(raw, "auto_backup", s.AutoBackup);
         s.LastFolderId = raw.GetValueOrDefault("last_folder_id") is { Length: > 0 } id ? id : null;
         s.MainWindowWidth = GetDouble(raw, "window_width", s.MainWindowWidth);
         s.MainWindowHeight = GetDouble(raw, "window_height", s.MainWindowHeight);
@@ -66,6 +67,7 @@ public sealed class SettingsService
             ["launcher_show_recent"] = settings.ShowRecentInLauncher ? "1" : "0",
             ["launcher_max_results"] = settings.LauncherMaxResults.ToString(CultureInfo.InvariantCulture),
             ["restore_last_folder"] = settings.RestoreLastFolder ? "1" : "0",
+            ["auto_backup"] = settings.AutoBackup ? "1" : "0",
             ["last_folder_id"] = settings.LastFolderId ?? string.Empty,
             ["window_width"] = settings.MainWindowWidth.ToString(CultureInfo.InvariantCulture),
             ["window_height"] = settings.MainWindowHeight.ToString(CultureInfo.InvariantCulture),

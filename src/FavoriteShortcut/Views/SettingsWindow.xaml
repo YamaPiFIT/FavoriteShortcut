@@ -191,7 +191,11 @@
 
                         <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,16,0,14" />
 
-                        <StackPanel Orientation="Horizontal">
+                        <CheckBox x:Name="AutoBackupCheck" Content="{DynamicResource Str.Settings.AutoBackup}" />
+                        <TextBlock x:Name="AutoBackupNote" Style="{StaticResource CaptionText}"
+                                   Margin="25,4,0,0" TextWrapping="Wrap" />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                             <Button Content="{DynamicResource Str.Settings.OpenBackup}" Style="{StaticResource SecondaryButton}"
                                     Click="OnOpenBackupFolder" />
                             <Button Content="{DynamicResource Str.Settings.OpenLog}" Style="{StaticResource SecondaryButton}"

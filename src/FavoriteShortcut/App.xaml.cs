@@ -27,6 +27,7 @@ public partial class App : Application
     public SettingsService Settings { get; private set; } = null!;
     public IconService Icons { get; private set; } = null!;
     public ExportImportService Transfer { get; private set; } = null!;
+    public AutoBackupService AutoBackup { get; private set; } = null!;
     public HotKeyService HotKeys { get; private set; } = null!;
 
     /// <summary>ホットキーの登録に失敗したまま起動した場合 true（設定画面で注意表示）。</summary>
@@ -89,6 +90,7 @@ public partial class App : Application
         Settings = new SettingsService(Store);
         Icons = new IconService(Store, Settings);
         Transfer = new ExportImportService(Store, Settings);
+        AutoBackup = new AutoBackupService(Store, Settings);
 
         Loc.Apply(Settings.Current.Language);
         Loc.LanguageChanged += OnLanguageChanged;
@@ -105,6 +107,7 @@ public partial class App : Application
         RegisterHotKeyFromSettings();
 
         CreateTrayIcon();
+        AutoBackup.Start();
     }
 
     /// <summary>初回起動時に、使い方が分かる最小限のフォルダを用意する。</summary>
@@ -302,6 +305,7 @@ public partial class App : Application
             }
 
             HotKeys?.Dispose();
+            AutoBackup?.Dispose();
             Icons?.Dispose();
             Store?.Dispose();
         }

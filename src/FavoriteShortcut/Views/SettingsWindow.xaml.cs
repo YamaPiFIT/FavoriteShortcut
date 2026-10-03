@@ -54,6 +54,7 @@ public partial class SettingsWindow : Window
         StartMinimizedCheck.IsChecked = s.StartMinimized;
         RestoreFolderCheck.IsChecked = s.RestoreLastFolder;
         BrowserIconCacheCheck.IsChecked = s.UseBrowserIconCache;
+        AutoBackupCheck.IsChecked = s.AutoBackup;
         RunAtStartupCheck.IsChecked = StartupService.IsEnabled();
 
         RefreshLocalizedTexts();
@@ -88,6 +89,12 @@ public partial class SettingsWindow : Window
         DataPathNote.Text = Loc.T(AppPaths.UsingFallbackLocation
             ? "Str.Settings.DataNoteFallback"
             : "Str.Settings.DataNoteDefault");
+
+        var lastBackup = AutoBackupService.LastBackupTime;
+        AutoBackupNote.Text = Loc.T("Str.Settings.AutoBackupNote", AutoBackupService.KeepCount) + "\n" +
+                              (lastBackup is { } time
+                                  ? Loc.T("Str.Settings.AutoBackupLast", time.ToString("g", CultureInfo.CurrentCulture))
+                                  : Loc.T("Str.Settings.AutoBackupNone"));
 
         var version = typeof(SettingsWindow).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
         VersionText.Text = Loc.T("Str.Settings.Version", Loc.T("Str.App.Name"), version);
@@ -314,6 +321,7 @@ public partial class SettingsWindow : Window
         s.StartMinimized = StartMinimizedCheck.IsChecked == true;
         s.RestoreLastFolder = RestoreFolderCheck.IsChecked == true;
         s.UseBrowserIconCache = BrowserIconCacheCheck.IsChecked == true;
+        s.AutoBackup = AutoBackupCheck.IsChecked == true;
         s.RunAtStartup = RunAtStartupCheck.IsChecked == true;
 
         _settings.Save(s);

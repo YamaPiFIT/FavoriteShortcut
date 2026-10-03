@@ -33,6 +33,7 @@ public static class Program
             StoreTests();
             SearchTests();
             PerformanceTests.Run();
+            FeatureTests.Run();
             SettingsTests();
             TransferTests();
             RestartTests();

@@ -397,7 +397,9 @@ public sealed class ExportImportService
     {
         try
         {
+            // 自動バックアップは別に数える（AutoBackupService が整理する）
             var files = Directory.EnumerateFiles(AppPaths.BackupDirectory, "*.sqlite")
+                .Where(f => !AutoBackupService.IsAutoBackup(f))
                 .OrderByDescending(File.GetLastWriteTimeUtc)
                 .Skip(keep)
                 .ToList();

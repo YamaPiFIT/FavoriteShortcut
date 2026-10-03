@@ -62,6 +62,9 @@ public sealed class AppSettings
     /// <summary>起動時に最後に選んでいたフォルダを復元するか。</summary>
     public bool RestoreLastFolder { get; set; } = true;
 
+    /// <summary>1 日 1 回、自動でバックアップを作るか（登録内容が変わった日だけ）。</summary>
+    public bool AutoBackup { get; set; } = true;
+
     public string? LastFolderId { get; set; }
 
     public double MainWindowWidth { get; set; } = 1040;
