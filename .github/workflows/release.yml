@@ -1,0 +1,71 @@
+# リリースの自動化
+#
+# v1.2.3 のようなタグを push すると、GitHub 上で次を行う。
+#   1. 検証プログラム（テスト）を実行する（失敗したらここで止まり、リリースは作らない）
+#   2. 配布用の EXE とポータブル版 ZIP を作る
+#   3. docs/release-notes-<タグ>.md を本文にしたリリースを「下書き」で作り、EXE と ZIP を添付する
+#
+# 下書きは GitHub の Releases で内容を確認し、「Publish release」を押すと公開される。
+# 手順は docs/RELEASE.md を参照。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# リリースの下書きを作るためだけに、リポジトリの内容への書き込みを許可する
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      # GitHub 公式のアクションだけを使う。改ざんされた版を使わないよう、コミット単位で固定している
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: テスト、EXE と ZIP の作成
+        shell: pwsh
+        run: ./scripts/build.ps1 -Mode SelfContained
+
+      - name: リリースの下書きを作成
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $exe = 'build/self-contained/FavoriteShortcut.exe'
+          $zip = 'build/FavoriteShortcut-portable.zip'
+
+          # 添付ファイルのハッシュ値。リリースノートに <!-- SHA256 --> があればそこへ、なければ末尾に入れる
+          $hashExe = (Get-FileHash $exe -Algorithm SHA256).Hash
+          $hashZip = (Get-FileHash $zip -Algorithm SHA256).Hash
+          $fence = '```'
+          $sha = "## SHA256`n`n$fence`nexe $hashExe`nzip $hashZip`n$fence`n"
+
+          $notes = "docs/release-notes-$env:TAG.md"
+          $body = if (Test-Path $notes) { Get-Content $notes -Raw -Encoding utf8 } else { '' }
+          if ($body.Contains('<!-- SHA256 -->')) {
+              $body = $body.Replace('<!-- SHA256 -->', $sha)
+          } elseif ($body.Trim().Length -eq 0) {
+              $body = $sha
+          } else {
+              $body = $body.TrimEnd() + "`n`n" + $sha
+          }
+          Set-Content -Path release-body.md -Value $body -Encoding utf8
+
+          # 同じタグで実行し直したときは、添付ファイルと本文を差し替える
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+              gh release upload $env:TAG $exe $zip --clobber
+              gh release edit $env:TAG --notes-file release-body.md
+          } else {
+              gh release create $env:TAG $exe $zip --draft --title $env:TAG --notes-file release-body.md
+          }

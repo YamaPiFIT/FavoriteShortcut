@@ -443,6 +443,9 @@ build\
 `-Mode SelfContained` は単一ファイル（`PublishSingleFile`）かつ ReadyToRun で発行します。
 初回起動時にネイティブライブラリが一時フォルダへ展開されるため、初回だけ少し時間がかかります。
 
+`v1.2.3` のようなタグを push すると、GitHub Actions がテスト・EXE と ZIP の作成・
+リリースの下書き作成までを自動で行います。手順は [docs/RELEASE.md](docs/RELEASE.md) を参照してください。
+
 ### インストーラー
 
 [Inno Setup 6](https://jrsoftware.org/isinfo.php) をインストールしたうえで:

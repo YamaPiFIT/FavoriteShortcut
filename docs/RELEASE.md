@@ -2,93 +2,82 @@
 
 GitHub の Releases に EXE を公開して、誰でもダウンロードできるようにするための手順です。
 
+**タグを push すると、テスト・EXE と ZIP の作成・リリースの下書き作成までを GitHub が自動で行います**
+（[`.github/workflows/release.yml`](../.github/workflows/release.yml)）。
+最後に内容を確認して「Publish release」を押すだけで公開されます。
+
 ## 1. バージョン番号を上げる
 
-`src/FavoriteShortcut/FavoriteShortcut.csproj` の `<Version>` を更新します。
+次の 2 か所を同じ番号にします。
+
+- `src/FavoriteShortcut/FavoriteShortcut.csproj` の `<Version>`
+- `installer/FavoriteShortcut.iss` の `AppVersion`
 
 ```xml
-<Version>1.0.1</Version>
+<Version>1.3.0</Version>
 ```
 
-## 2. ビルドする
+## 2. リリースノートを書く
+
+`docs/release-notes-v1.3.0.md` のように、タグと同じ名前のファイルを作ります。
+この内容がそのままリリースの説明文になります（過去のファイルが参考になります）。
+
+添付する EXE / ZIP のハッシュ値（SHA256）は自動で付け足されます。
+置きたい場所に `<!-- SHA256 -->` と書いておくとそこへ、書かなければ末尾に入ります。
+
+## 3. 手元で確認する（任意）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Mode Both
 ```
 
-検証プログラム（70 件）が自動で実行され、失敗した場合はビルドが中止されます。
-成功すると次が生成されます。
+検証プログラムが自動で実行され、失敗した場合はビルドが中止されます。成功すると次が生成されます。
 
 ```
-build\self-contained\FavoriteShortcut.exe        ← Releases に添付する（約 68 MB）
-build\FavoriteShortcut-portable.zip              ← Releases に添付する（約 62 MB）
-build\framework-dependent\FavoriteShortcut.exe   ← 添付しない（.NET が別途必要なため）
+build\self-contained\FavoriteShortcut.exe        ← 配布用（約 68 MB）
+build\FavoriteShortcut-portable.zip              ← 配布用（約 62 MB）
+build\framework-dependent\FavoriteShortcut.exe   ← .NET が別途必要な版（配布はしない）
 ```
 
-## 3. コミットしてタグを打つ
+## 4. コミットしてタグを push する
 
 ```powershell
 git add -A
-git commit -m "v1.0.1"
-git tag -a v1.0.1 -m "お気に入りショートカット v1.0.1"
+git commit -m "v1.3.0"
+git tag -a v1.3.0 -m "お気に入りショートカット v1.3.0"
 git push origin main --follow-tags
 ```
 
-## 4. Releases を作成する
+タグが届くと GitHub の **Actions** タブで「Release」が動き始めます（10 分ほど）。
+テストが失敗した場合はリリースは作られません。Actions の画面でエラーを確認してください。
 
-https://github.com/YamaPiFIT/FavoriteShortcut/releases/new
+## 5. 下書きを確認して公開する
 
-1. **Choose a tag** で、手順 3 で push したタグ（例 `v1.0.1`）を選ぶ
-2. **Release title** に `v1.0.1` などを入れる
-3. 説明欄に変更点を書く（下に雛形あり）
-4. **Attach binaries** の枠へ、手順 2 の EXE と ZIP をドラッグ＆ドロップ
-   - アップロードのプログレスバーが 100% になるまで待つ（サイズが大きいため数分かかることがあります）
-5. **Publish release** を押す
+https://github.com/YamaPiFIT/FavoriteShortcut/releases
+
+1. 「Draft」と表示されたリリースを開き、鉛筆アイコン（Edit）を押す
+2. 説明文と、添付の `FavoriteShortcut.exe` / `FavoriteShortcut-portable.zip` を確認する
+3. **Publish release** を押す
 
 公開すると README のダウンロードバッジが自動で最新版を指すようになります。
 
----
-
-## 説明欄の雛形
-
-```markdown
-Windows 用のお気に入り管理 + ランチャーアプリです。
-
-## ダウンロード
-
-| ファイル | 内容 |
-|---|---|
-| `FavoriteShortcut.exe` | これ 1 つで動きます（.NET のインストール不要） |
-| `FavoriteShortcut-portable.zip` | 上記 + README / LICENSE をまとめたもの |
-
-## 使い方
-
-1. ダウンロードした EXE を好きな場所に置いてダブルクリック
-2. `Ctrl + Space` でランチャーが開きます
-3. キーワードを入力して `Enter` で起動
-
-登録したデータは EXE と同じ場所に作られる `Data` フォルダに保存されます。
-フォルダごとコピーすれば別の PC へそのまま移せます。
-
-## 動作環境
-
-Windows 10 (1809 以降) / Windows 11 の 64bit
-
-## ご注意
-
-初回起動時に「WindowsによってPCが保護されました」と表示されます。
-個人で作成した未署名のアプリのため出るもので、**詳細情報** → **実行** で起動できます。
-
-## 変更点
-
-- （ここに変更内容を書く）
-```
+同じタグで作り直したいときは、Actions の画面から「Re-run jobs」を実行すると、
+下書きの添付ファイルと説明文が差し替わります。
 
 ---
 
-## SHA256 を添える場合
+## 自動化が使えないときの手順
 
-配布物の改ざん検知用にハッシュを説明欄へ載せるときは、次で取得できます。
+手順 3 のビルドで作った EXE と ZIP を、手作業で添付します。
+
+1. https://github.com/YamaPiFIT/FavoriteShortcut/releases/new を開く
+2. **Choose a tag** で、push したタグ（例 `v1.3.0`）を選ぶ
+3. **Release title** にタグと同じ名前を入れ、説明欄にリリースノートの内容を貼る
+4. **Attach binaries** の枠へ EXE と ZIP をドラッグ＆ドロップ
+   - アップロードのプログレスバーが 100% になるまで待つ（サイズが大きいため数分かかることがあります）
+5. **Publish release** を押す
+
+ハッシュ値は次で取得できます。
 
 ```powershell
 Get-FileHash build\self-contained\FavoriteShortcut.exe -Algorithm SHA256
@@ -97,33 +86,12 @@ Get-FileHash build\FavoriteShortcut-portable.zip -Algorithm SHA256
 
 ---
 
-## コマンドラインから公開したい場合
-
-[GitHub CLI](https://cli.github.com/) を入れておくと、手順 4 を 1 コマンドで実行できます。
-
-```powershell
-winget install --id GitHub.cli
-gh auth login          # 初回のみ。ブラウザで認証します
-```
-
-以降はビルド後に次を実行するだけです。
-
-```powershell
-gh release create v1.0.1 `
-  "build\self-contained\FavoriteShortcut.exe" `
-  "build\FavoriteShortcut-portable.zip" `
-  --title "v1.0.1" `
-  --notes-file docs\release-notes.md
-```
-
----
-
 ## インストーラーも配布する場合
 
-[Inno Setup 6](https://jrsoftware.org/isinfo.php) を入れたうえで、手順 2 のあとに実行します。
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) を入れたうえで、手順 3 のあとに実行します。
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\FavoriteShortcut.iss
 ```
 
-`installer\FavoriteShortcut-Setup.exe` ができるので、これも Releases に添付します。
+`installer\FavoriteShortcut-Setup.exe` ができるので、これもリリースに添付します。
