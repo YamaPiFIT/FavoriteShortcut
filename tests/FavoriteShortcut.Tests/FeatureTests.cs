@@ -1,13 +1,15 @@
 using System.IO;
+using System.Windows.Threading;
 using FavoriteShortcut.Data;
 using FavoriteShortcut.Models;
 using FavoriteShortcut.Services;
+using FavoriteShortcut.Views;
 using Microsoft.Data.Sqlite;
 using static FavoriteShortcut.Tests.TestRunner;
 
 namespace FavoriteShortcut.Tests;
 
-/// <summary>v1.3.0 で追加した機能の検証。</summary>
+/// <summary>v1.3.0 以降で追加・変更した機能の検証。</summary>
 internal static class FeatureTests
 {
     public static void Run()
@@ -15,6 +17,7 @@ internal static class FeatureTests
         AutoBackupTests();
         ClipboardTests();
         ThemeTests();
+        NetworkWaitTests();
     }
 
     private static (Database Db, AppStore Store) NewStore(string fileName)
@@ -231,6 +234,268 @@ internal static class FeatureTests
                 AssertEqual(AppTheme.Auto, new SettingsService(store).Current.Theme, "テーマ");
             });
         }
+    }
+
+    // ------------------------------------------- ネットワークを待たない（v1.3.1）
+
+    /// <summary>
+    /// 会社の PC などで、プロキシの自動検出や共有フォルダの応答を待って画面が固まらないことの確認。
+    /// 実際の通信は行わない（共有フォルダのパスは文字列として扱うだけで、サーバーには接続しない）。
+    /// </summary>
+    private static void NetworkWaitTests()
+    {
+        Group("ネットワークを待たない（v1.3.1）");
+
+        Test("アプリはどこにも通信しない（通信用の部品を参照していない）", () =>
+        {
+            var network = typeof(IconService).Assembly.GetReferencedAssemblies()
+                .Select(a => a.Name ?? string.Empty)
+                .Where(name => name.StartsWith("System.Net", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            AssertTrue(network.Count == 0, "参照している部品: " + string.Join(", ", network));
+        });
+
+        Test("共有フォルダのパスを見分けられる", () =>
+        {
+            AssertTrue(TargetResolver.IsNetworkPath(@"\\server\share\資料"), "UNC");
+            AssertTrue(TargetResolver.IsNetworkPath(@"\\?\UNC\server\share\a.txt"), "長いパスの書き方の UNC");
+            AssertTrue(!TargetResolver.IsNetworkPath(@"\\?\C:\Windows"), "長いパスの書き方のローカル");
+            AssertTrue(!TargetResolver.IsNetworkPath(Environment.GetFolderPath(Environment.SpecialFolder.Windows)), "ローカル");
+            AssertTrue(!TargetResolver.IsNetworkPath("https://example.com/"), "Web");
+            AssertTrue(!TargetResolver.IsNetworkPath(string.Empty), "空");
+        });
+
+        Test("ブラウザのアイコンの一時コピーが残っていたら片付ける（使用中の新しいものは残す）", () =>
+        {
+            var stale = Path.Combine(Path.GetTempPath(), "fsc-icons-" + Guid.NewGuid().ToString("N"));
+            var fresh = Path.Combine(Path.GetTempPath(), "fsc-icons-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(stale);
+                File.WriteAllText(Path.Combine(stale, "Favicons"), "dummy");
+                Directory.SetCreationTimeUtc(stale, DateTime.UtcNow.AddHours(-1));
+                Directory.CreateDirectory(fresh);
+
+                BrowserFaviconCache.DeleteStaleSnapshots();
+
+                AssertTrue(!Directory.Exists(stale), "古いものは消える");
+                AssertTrue(Directory.Exists(fresh), "新しいものは残る");
+            }
+            finally
+            {
+                foreach (var dir in new[] { stale, fresh })
+                    if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+            }
+        });
+
+        // サーバーには接続しない。パスは文字列として判定に使うだけ
+        const string share = @"\\fsc-test-server\share";
+
+        RunOnSta(() =>
+        {
+            Test("共有フォルダ上のフォルダは、いったん標準のアイコンを出して実物は裏で読む", () =>
+            {
+                AssertTrue(IconService.NeedsNetworkRead(share + @"\資料", folder: true, out var placeholder), "裏で読む");
+                AssertTrue(placeholder is not null, "すぐ出すアイコン");
+            });
+
+            Test("共有フォルダ上の EXE は、いったん標準のアイコンを出して実物は裏で読む", () =>
+            {
+                AssertTrue(IconService.NeedsNetworkRead(share + @"\tool.exe", folder: false, out var placeholder), "裏で読む");
+                AssertTrue(placeholder is not null, "すぐ出すアイコン");
+            });
+
+            Test("拡張子で決まるアイコンは、共有フォルダ上のファイルを読まずに済む", () =>
+            {
+                AssertTrue(!IconService.NeedsNetworkRead(share + @"\見積.fsctest", folder: false, out var placeholder), "読まない");
+                AssertTrue(placeholder is not null, "アイコン");
+                AssertTrue(ShellIconProvider.IsLoaded(share + @"\別の見積.fsctest", folder: false), "同じ拡張子は取得済み");
+            });
+
+            Test("ローカルのフォルダは今までどおりその場で取得する", () =>
+                AssertTrue(!IconService.NeedsNetworkRead(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows), folder: true, out _), "ローカル"));
+        });
+
+        var (db, store) = NewStore("network-wait-test.sqlite");
+        using (db)
+        {
+            Test("ブラウザのアイコンを使わない設定では、サイトのアイコンを探さない", () =>
+            {
+                var settings = new SettingsService(store);
+                var s = settings.Current.Clone();
+                s.UseBrowserIconCache = false; // 利用者のブラウザのデータには触れない
+                settings.Save(s);
+
+                using var icons = new IconService(store, settings);
+                var item = Web("例", "https://example.com/");
+
+                var found = icons.EnsureFaviconAsync(item, force: true).GetAwaiter().GetResult();
+                AssertTrue(!found, "見つからない扱い");
+                AssertTrue(item.IconPath is null, "アイコンは変わらない");
+            });
+
+            Test("裏のスレッドで取得したアイコンを、画面のスレッドで表示できる", () =>
+            {
+                using var icons = new IconService(store, new SettingsService(store));
+
+                // まだ取得していないフォルダで、裏のスレッドに実物を読ませる（ローカルなので通信はしない）
+                ShellIconProvider.ClearCache();
+                var folder = Environment.GetFolderPath(Environment.SpecialFolder.System);
+                var task = icons.RunOnShellThread(() => ShellIconProvider.GetFolderIcon(folder, exists: true));
+                AssertTrue(task.Wait(TimeSpan.FromSeconds(30)), "取得が終わる");
+
+                // アイコンを出せない環境（サーバーの検証環境など）では、取得できないこともある
+                var icon = task.Result;
+                if (icon is null) return;
+
+                AssertTrue(icon.IsFrozen, "どのスレッドからも使えるよう凍結されている");
+                RunOnSta(() =>
+                {
+                    var image = new System.Windows.Controls.Image { Source = icon, Width = 32, Height = 32 };
+                    image.Measure(new System.Windows.Size(32, 32));
+                    image.Arrange(new System.Windows.Rect(0, 0, 32, 32));
+                    var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                        32, 32, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                    bitmap.Render(image); // 別のスレッドのものなら、ここで例外になる
+                });
+            });
+        }
+    }
+
+    // ------------------------------------------------------- 登録画面（v1.3.1）
+
+    /// <summary>
+    /// 登録・編集画面で、共有フォルダのパスの確認を裏で行うことの確認（画面は表示しない）。
+    /// 画面の部品を作るためにアプリ本体（Application）を用意するので、他の検証に影響しないよう最後に実行する。
+    /// </summary>
+    public static void RunEditWindowTests()
+    {
+        Group("登録画面は共有フォルダを待たない（v1.3.1）");
+
+        var (db, store) = NewStore("edit-window-test.sqlite");
+        using (db)
+        {
+            RunOnSta(() =>
+            {
+                // 起動処理（二重起動の確認・トレイ・ホットキー）は行わず、画面に必要な部品だけ用意する
+                var app = new TestApp { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+                foreach (var theme in new[] { "Themes/Light.xaml", "Themes/Controls.xaml" }) // App.xaml と同じもの
+                    app.Resources.MergedDictionaries.Add(new System.Windows.ResourceDictionary
+                    {
+                        Source = new Uri("pack://application:,,,/FavoriteShortcut;component/" + theme),
+                    });
+                SynchronizationContext.SetSynchronizationContext(
+                    new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+
+                var settings = new SettingsService(store);
+                var s = settings.Current.Clone();
+                s.UseBrowserIconCache = false; // 利用者のブラウザのデータには触れない
+                settings.Save(s);
+                using var icons = new IconService(store, settings);
+
+                SetService(app, nameof(App.Db), db);
+                SetService(app, nameof(App.Store), store);
+                SetService(app, nameof(App.Settings), settings);
+                SetService(app, nameof(App.Icons), icons);
+                Loc.Apply(AppLanguage.Japanese);
+
+                try
+                {
+                    Test("共有フォルダのパスは、画面を止めずに裏で確かめる", () =>
+                    {
+                        // 自分の PC（127.0.0.1）宛てなので、外への通信は起きない
+                        var item = new ShortcutItem
+                        {
+                            Title = "共有", Target = @"\\127.0.0.1\fsc-test-no-such-share\資料", TargetType = TargetType.Folder,
+                        };
+                        var window = new ShortcutEditWindow(item);
+
+                        AssertEqual(Loc.T("Str.Edit.CheckingPath"), window.TargetInfoText.Text, "確認中の表示");
+                        AssertTrue(PumpUntil(() => window.TargetInfoText.Text != Loc.T("Str.Edit.CheckingPath"),
+                            TimeSpan.FromSeconds(60)), "確認が終わる");
+                        AssertTrue(window.TargetInfoText.Text.StartsWith(
+                            Loc.T("Str.Edit.TypeInfo", Loc.T("Str.Type.Folder")), StringComparison.Ordinal),
+                            "種類: " + window.TargetInfoText.Text);
+                        AssertTrue(window.TargetInfoText.Text.Contains(Loc.T("Str.Edit.PathMissing")), "見つからない表示");
+                        AssertTrue(window.IconPreview.Source is not null, "アイコン");
+                        window.Close();
+                    });
+
+                    Test("ローカルのパスは今までどおりその場で確かめる", () =>
+                    {
+                        var folder = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                        var item = new ShortcutItem { Title = "Windows", Target = folder, TargetType = TargetType.Folder };
+                        var window = new ShortcutEditWindow(item);
+
+                        AssertEqual(Loc.T("Str.Edit.TypeInfo", Loc.T("Str.Type.Folder")), window.TargetInfoText.Text, "すぐに結果");
+                        AssertTrue(window.IconPreview.Source is not null, "アイコン");
+                        window.Close();
+                    });
+
+                    Test("Web は「ブラウザから取得」ボタンが使える", () =>
+                    {
+                        var window = new ShortcutEditWindow(Web("例", "https://example.com/"));
+
+                        AssertTrue(window.FetchFaviconButton.IsEnabled, "ボタンが使える");
+                        AssertEqual(Loc.T("Str.Edit.FetchFavicon"), window.FetchFaviconButton.Content as string, "ボタン名");
+                        AssertEqual(Loc.T("Str.Edit.IconAutoWeb"), window.IconSourceText.Text, "アイコンの説明");
+                        window.Close();
+                    });
+                }
+                finally
+                {
+                    Dispatcher.CurrentDispatcher.InvokeShutdown();
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// 検証用のアプリ本体。WPF は Application を作った時点で起動処理（OnStartup）の呼び出しを予約するので、
+    /// 何もしないものに差し替える（二重起動の確認で、動いている本物のアプリに通知を送ったりしないように）。
+    /// </summary>
+    private sealed class TestApp : App
+    {
+        protected override void OnStartup(System.Windows.StartupEventArgs e) { }
+
+        protected override void OnExit(System.Windows.ExitEventArgs e) { }
+    }
+
+    private static void SetService(App app, string name, object value) =>
+        typeof(App).GetProperty(name)!.SetValue(app, value);
+
+    /// <summary>画面のスレッドの処理を進めながら、条件が成り立つまで待つ。</summary>
+    private static bool PumpUntil(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) return false;
+
+            var frame = new DispatcherFrame();
+            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background,
+                new Action(() => frame.Continue = false));
+            Dispatcher.PushFrame(frame);
+            Thread.Sleep(20);
+        }
+        return true;
+    }
+
+    /// <summary>シェルのアイコン取得や画面の部品は、画面と同じ STA のスレッドで扱う。例外は呼び出し元へ伝える。</summary>
+    private static void RunOnSta(Action body)
+    {
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try { body(); }
+            catch (Exception ex) { error = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        if (error is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
     }
 
     private static long CountRows(string databasePath, string table)

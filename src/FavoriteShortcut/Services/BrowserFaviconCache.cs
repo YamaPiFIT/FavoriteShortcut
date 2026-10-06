@@ -6,10 +6,9 @@ namespace FavoriteShortcut.Services;
 /// <summary>
 /// ブラウザが保存している favicon のキャッシュから、アイコン画像を取り出す。
 ///
-/// このアプリからブラウザのプロセスを覗くことはできないが、ブラウザは表示したサイトの
-/// favicon を自分の SQLite に保存している。そこを読むことで、
-/// bot 対策で弾かれるサイト・認証が必要な社内サイト・JS で描画されるサイトなど、
-/// HTTP で直接取りに行っても取得できないアイコンを表示できる（オフラインでも動作する）。
+/// このアプリはサイトへ通信しない。ブラウザは表示したサイトの favicon を自分の SQLite に
+/// 保存しているので、そこを読んでアイコンを表示する。bot 対策のあるサイトや
+/// 認証が必要な社内サイトでも、ブラウザで開いたことがあれば表示できる（オフラインでも動作する）。
 ///
 /// 取り扱いの方針:
 ///   - 通信は一切行わない。ローカルファイルを読み取り専用で開くだけ
@@ -30,6 +29,7 @@ public sealed class BrowserFaviconCache : IDisposable
     private List<Snapshot>? _snapshots;
     private DateTime _snapshotCreatedAt;
     private Timer? _cleanupTimer;
+    private bool _staleSnapshotsCleaned;
 
     private sealed record Snapshot(string Path, BrowserKind Kind, string SourceName);
 
@@ -48,23 +48,28 @@ public sealed class BrowserFaviconCache : IDisposable
     /// </summary>
     public Found? TryFind(Uri pageUri)
     {
-        foreach (var snapshot in GetSnapshots())
+        // 一定時間後に別のスレッドで行う一時コピーの削除と重ならないよう、読み終えるまで保持する
+        // （読んでいる途中で削除しようとすると失敗し、コピーが残ってしまう）
+        lock (_gate)
         {
-            try
+            foreach (var snapshot in GetSnapshots())
             {
-                var data = snapshot.Kind == BrowserKind.Chromium
-                    ? ReadChromium(snapshot.Path, pageUri)
-                    : ReadFirefox(snapshot.Path, pageUri);
+                try
+                {
+                    var data = snapshot.Kind == BrowserKind.Chromium
+                        ? ReadChromium(snapshot.Path, pageUri)
+                        : ReadFirefox(snapshot.Path, pageUri);
 
-                if (data is not null) return new Found(data, snapshot.SourceName);
+                    if (data is not null) return new Found(data, snapshot.SourceName);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Warn($"ブラウザのアイコンキャッシュを読めませんでした: {snapshot.SourceName}", ex);
+                }
             }
-            catch (Exception ex)
-            {
-                AppLog.Warn($"ブラウザのアイコンキャッシュを読めませんでした: {snapshot.SourceName}", ex);
-            }
+
+            return null;
         }
-
-        return null;
     }
 
     // ------------------------------------------------------- 問い合わせ本体
@@ -214,6 +219,12 @@ public sealed class BrowserFaviconCache : IDisposable
 
             DeleteSnapshots();
 
+            if (!_staleSnapshotsCleaned)
+            {
+                _staleSnapshotsCleaned = true;
+                DeleteStaleSnapshots();
+            }
+
             _snapshots = new List<Snapshot>();
             _snapshotCreatedAt = DateTime.UtcNow;
 
@@ -317,9 +328,9 @@ public sealed class BrowserFaviconCache : IDisposable
     /// </summary>
     private static string? TryCopyForReading(string path)
     {
+        var directory = Path.Combine(Path.GetTempPath(), SnapshotPrefix + Guid.NewGuid().ToString("N"));
         try
         {
-            var directory = Path.Combine(Path.GetTempPath(), "fsc-icons-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
 
             var destination = Path.Combine(directory, Path.GetFileName(path));
@@ -337,7 +348,41 @@ public sealed class BrowserFaviconCache : IDisposable
         catch (Exception ex)
         {
             AppLog.Warn($"アイコンキャッシュをコピーできませんでした: {path}", ex);
+
+            // 作りかけの一時フォルダを残さない
+            try { Directory.Delete(directory, recursive: true); }
+            catch { /* 消せなければ、次回の片付けに回す */ }
             return null;
+        }
+    }
+
+    private const string SnapshotPrefix = "fsc-icons-";
+
+    /// <summary>
+    /// 以前に消しきれなかった一時コピーを片付ける（アプリが強制終了された場合や、
+    /// ウイルス対策ソフトがファイルを開いていて削除できなかった場合など）。
+    /// 別に動いているこのアプリが使用中のものは消さないよう、十分に古いものだけを対象にする。
+    /// </summary>
+    internal static void DeleteStaleSnapshots()
+    {
+        try
+        {
+            foreach (var directory in Directory.EnumerateDirectories(Path.GetTempPath(), SnapshotPrefix + "*"))
+            {
+                try
+                {
+                    if (DateTime.UtcNow - Directory.GetCreationTimeUtc(directory) < TimeSpan.FromMinutes(10)) continue;
+                    Directory.Delete(directory, recursive: true);
+                }
+                catch
+                {
+                    // 使用中などで消せなければ、次回に回す
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("以前の一時コピーを片付けられませんでした。", ex);
         }
     }
 

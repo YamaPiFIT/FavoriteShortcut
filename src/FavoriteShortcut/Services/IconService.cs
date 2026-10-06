@@ -1,9 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO;
-using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FavoriteShortcut.Data;
@@ -14,36 +12,39 @@ namespace FavoriteShortcut.Services;
 /// <summary>
 /// ショートカットのアイコン解決（§11, §22, §34）。
 ///
-///   Web        : サイトから直接取得 → ブラウザのアイコンキャッシュ の順に試し、
-///                icons/ にキャッシュする。取れなければ既定アイコン。
+///   Web        : ブラウザが保存しているアイコン（ブラウザで開いたことのあるサイト）を
+///                icons/ にコピーして使う。取れなければ既定アイコン。
+///                アプリからサイトへの通信は行わない。
 ///   フォルダ   : Windows のフォルダアイコン
 ///   ファイル   : 関連付けられたアプリのアイコン
 ///   カスタム   : ユーザーが指定した画像を icons/ にコピー
 ///
 /// DB にはバイナリではなく icons/ 配下の相対ファイル名だけを保存する。
 /// キャッシュ済みアイコンはオフラインでも表示できる。
+///
+/// 画面の表示を待たせないよう、ブラウザのファイルの読み取りと、
+/// 共有フォルダ（ネットワーク上）のフォルダ・ファイルのアイコン取得は裏で行う。
 /// </summary>
 public sealed class IconService : IDisposable
 {
-    private static readonly HttpClient Http = CreateHttpClient();
-
-    private static readonly Regex LinkTagRegex = new(
-        "<link\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex AttrRegex = new(
-        "(?<name>[a-zA-Z\\-]+)\\s*=\\s*(\"(?<v1>[^\"]*)\"|'(?<v2>[^']*)'|(?<v3>[^\\s>]+))",
-        RegexOptions.Compiled);
-
     private readonly AppStore _store;
     private readonly SettingsService _settings;
 
     /// <summary>ファイル名 -> 読み込み済み画像。</summary>
     private readonly ConcurrentDictionary<string, ImageSource> _memoryCache = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>取得中/取得失敗したホスト。短時間に何度も取りに行かないようにする。</summary>
+    /// <summary>
+    /// ブラウザのアイコンを探している / 見つからなかったサイト。
+    /// 見つからなかったサイトは、アプリから開くか「アイコンを再取得」するまで探し直さない。
+    /// </summary>
     private readonly ConcurrentDictionary<string, byte> _inFlight = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _failed = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly SemaphoreSlim _throttle = new(4, 4);
+    /// <summary>
+    /// ブラウザのファイルは 1 件ずつ読む。一時コピーを使い回すので、同時に読んでも速くはならず、
+    /// アイコンファイルの保存が重ならないようにもなる。
+    /// </summary>
+    private readonly SemaphoreSlim _throttle = new(1, 1);
     private readonly BrowserFaviconCache _browserCache = new();
 
     /// <summary>
@@ -71,31 +72,29 @@ public sealed class IconService : IDisposable
 
     private readonly record struct ExistenceState(bool Exists, long CheckedAt);
 
+    /// <summary>
+    /// 共有フォルダ上のフォルダ / ファイルのアイコンを取得する専用スレッドへの依頼。
+    ///
+    /// フォルダ固有のアイコンや EXE に埋め込まれたアイコンは実物を読まないと分からず、
+    /// サーバーの応答が遅いとその間ずっと待たされる。UI スレッドで行うと画面が固まるので、
+    /// いったん標準のアイコンを出しておき、取得できたら差し替える。
+    /// シェルのアイコン取得は STA のスレッドで行う必要があるため、スレッドプールではなく専用のスレッドを使う。
+    /// </summary>
+    private readonly BlockingCollection<(Func<ImageSource?> Work, TaskCompletionSource<ImageSource?> Done)> _shellQueue = new();
+    private readonly ConcurrentDictionary<string, byte> _shellLoads = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _shellThreadGate = new();
+    private Thread? _shellThread;
+
     public IconService(AppStore store, SettingsService settings)
     {
         _store = store;
         _settings = settings;
     }
 
-    public void Dispose() => _browserCache.Dispose();
-
-    private static HttpClient CreateHttpClient()
+    public void Dispose()
     {
-        var handler = new HttpClientHandler
-        {
-            AllowAutoRedirect = true,
-            MaxAutomaticRedirections = 5,
-            AutomaticDecompression = System.Net.DecompressionMethods.All,
-        };
-        var client = new HttpClient(handler)
-        {
-            Timeout = TimeSpan.FromSeconds(8),
-            MaxResponseContentBufferSize = 4 * 1024 * 1024,
-        };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FavoriteShortcut/1.0");
-        client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ja,en;q=0.8");
-        return client;
+        _shellQueue.CompleteAdding();
+        _browserCache.Dispose();
     }
 
     public static string FullPath(string relativeFileName) =>
@@ -116,7 +115,7 @@ public sealed class IconService : IDisposable
     }
 
     /// <summary>
-    /// 一覧に表示するアイコン。<see cref="ResolveSync"/> と同じ結果になるが、
+    /// 一覧に表示するアイコン。
     /// フォルダ / ファイルの存在確認には前回の結果を使い、確認し直しは裏で行う。
     /// </summary>
     private ImageSource ResolveForList(ShortcutItem item)
@@ -130,12 +129,49 @@ public sealed class IconService : IDisposable
         var path = TargetResolver.Expand(item.Target ?? string.Empty);
         return item.TargetType switch
         {
-            TargetType.Folder => ShellIconProvider.GetFolderIcon(path, KnownExists(path, folder: true)) ?? DefaultIcons.Folder,
-            TargetType.File => ShellIconProvider.GetFileIcon(path, KnownExists(path, folder: false)) ?? DefaultIcons.File,
-            TargetType.Application => ShellIconProvider.GetFileIcon(path, KnownExists(path, folder: false)) ?? DefaultIcons.For(TargetType.Application),
+            TargetType.Folder => ShellIconForList(path, folder: true) ?? DefaultIcons.Folder,
+            TargetType.File => ShellIconForList(path, folder: false) ?? DefaultIcons.File,
+            TargetType.Application => ShellIconForList(path, folder: false) ?? DefaultIcons.For(TargetType.Application),
             TargetType.Web => DefaultIcons.Web,
             _ => DefaultIcons.Unknown,
         };
+    }
+
+    /// <summary>
+    /// フォルダ / ファイルのシェルアイコン。
+    /// 共有フォルダ上のもので、実物を読まないと分からないアイコンをまだ取得していなければ、
+    /// いったん標準のアイコンを返し、実物のアイコンは裏で取得してから差し替える。
+    /// </summary>
+    private ImageSource? ShellIconForList(string path, bool folder)
+    {
+        var exists = KnownExists(path, folder);
+
+        if (exists && NeedsNetworkRead(path, folder, out var placeholder))
+        {
+            LoadShellIconInBackground(path, folder);
+            return placeholder;
+        }
+
+        return LoadShellIcon(path, folder, exists);
+    }
+
+    private static ImageSource? LoadShellIcon(string path, bool folder, bool exists) =>
+        folder ? ShellIconProvider.GetFolderIcon(path, exists) : ShellIconProvider.GetFileIcon(path, exists);
+
+    /// <summary>
+    /// 実在するパスのアイコンを出すのに、共有フォルダ上の実物を読む必要があるか。
+    /// 必要なら、代わりにすぐ出せる標準のアイコンを <paramref name="placeholder"/> に返す。
+    ///
+    /// 一般的なファイルのアイコンは拡張子で決まるので、標準のアイコンを取得した時点で
+    /// 用が済む（実物を読む必要は無くなる）。フォルダ固有のアイコンや EXE のアイコンは実物を読む。
+    /// </summary>
+    internal static bool NeedsNetworkRead(string path, bool folder, out ImageSource? placeholder)
+    {
+        placeholder = null;
+        if (ShellIconProvider.IsLoaded(path, folder) || !TargetResolver.IsNetworkPath(path)) return false;
+
+        placeholder = LoadShellIcon(path, folder, exists: false);
+        return !ShellIconProvider.IsLoaded(path, folder);
     }
 
     /// <summary>
@@ -157,7 +193,7 @@ public sealed class IconService : IDisposable
         // 初めて表示するパス。ローカルはその場で確かめ、最初から正しいアイコンを出す。
         // ネットワーク上のパスはつながらないと長く待たされるので、いったん「無い」ものとして
         // 表示し、裏で確かめてからアイコンを差し替える。
-        if (IsNetworkPath(path))
+        if (TargetResolver.IsNetworkPath(path))
         {
             _existence[key] = new ExistenceState(false, now);
             QueueExistenceCheck(key, path, folder);
@@ -167,21 +203,6 @@ public sealed class IconService : IDisposable
         var exists = folder ? Directory.Exists(path) : File.Exists(path);
         _existence[key] = new ExistenceState(exists, Environment.TickCount64);
         return exists;
-    }
-
-    /// <summary>UNC パス（\\server\share）またはネットワークドライブ上のパスか。</summary>
-    private static bool IsNetworkPath(string path)
-    {
-        if (path.StartsWith(@"\\", StringComparison.Ordinal)) return true;
-
-        if (path.Length >= 2 && path[1] == ':' && char.IsAsciiLetter(path[0]))
-        {
-            // ドライブの種類はドライブ自体に触らずに分かる
-            try { return new DriveInfo(path[..1]).DriveType == DriveType.Network; }
-            catch { return false; }
-        }
-
-        return false;
     }
 
     private void QueueExistenceCheck(string key, string path, bool folder)
@@ -231,24 +252,102 @@ public sealed class IconService : IDisposable
         });
     }
 
-    /// <summary>その場で決まるアイコン（保存済みファイル / シェル / 既定）を返す。</summary>
-    public ImageSource ResolveSync(ShortcutItem item)
+    // ------------------------------------------------ 共有フォルダのアイコン
+
+    /// <summary>共有フォルダ上のフォルダ / ファイルのアイコンを裏で取得し、取得できたら一覧の表示を差し替える。</summary>
+    private void LoadShellIconInBackground(string path, bool folder)
     {
+        var key = (folder ? "d|" : "f|") + path;
+        if (!_shellLoads.TryAdd(key, 0)) return; // 取得待ち
+
+        RunOnShellThread(() => LoadShellIcon(path, folder, exists: true))
+            .ContinueWith(loaded =>
+            {
+                _shellLoads.TryRemove(key, out _);
+                RefreshIconsForPath(path);
+            }, TaskScheduler.Default);
+    }
+
+    /// <summary>シェルのアイコン取得を専用スレッドで行う。失敗したときや終了処理中は null。</summary>
+    internal Task<ImageSource?> RunOnShellThread(Func<ImageSource?> work)
+    {
+        var done = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        lock (_shellThreadGate)
+        {
+            if (_shellThread is null)
+            {
+                _shellThread = new Thread(ShellThreadLoop) { IsBackground = true, Name = "ShellIconLoader" };
+                _shellThread.SetApartmentState(ApartmentState.STA);
+                _shellThread.Start();
+            }
+        }
+
+        try
+        {
+            _shellQueue.Add((work, done));
+        }
+        catch (InvalidOperationException)
+        {
+            done.TrySetResult(null); // 終了処理中
+        }
+
+        return done.Task;
+    }
+
+    private void ShellThreadLoop()
+    {
+        foreach (var (work, done) in _shellQueue.GetConsumingEnumerable())
+        {
+            try
+            {
+                done.TrySetResult(work());
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("共有フォルダのアイコンを取得できませんでした。", ex);
+                done.TrySetResult(null);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 登録画面のプレビュー用アイコン。存在確認は呼び出し側で済ませた結果を使う。
+    ///
+    /// 共有フォルダ上のもので実物を読む必要があるアイコンは、いったん標準のアイコンを返し、
+    /// 実物のアイコンは裏で取得して <paramref name="pending"/> で渡す（取得できなければ null）。
+    /// </summary>
+    public ImageSource ResolvePreview(ShortcutItem item, bool exists, out Task<ImageSource?>? pending)
+    {
+        pending = null;
+
         if (!string.IsNullOrEmpty(item.IconPath))
         {
             var loaded = LoadFromCache(item.IconPath);
             if (loaded is not null) return loaded;
         }
 
-        var path = TargetResolver.Expand(item.Target ?? string.Empty);
-        return item.TargetType switch
+        var fallback = item.TargetType switch
         {
-            TargetType.Folder => ShellIconProvider.GetFolderIcon(path) ?? DefaultIcons.Folder,
-            TargetType.File => ShellIconProvider.GetFileIcon(path) ?? DefaultIcons.File,
-            TargetType.Application => ShellIconProvider.GetFileIcon(path) ?? DefaultIcons.For(TargetType.Application),
+            TargetType.Folder => DefaultIcons.Folder,
+            TargetType.File => DefaultIcons.File,
+            TargetType.Application => DefaultIcons.For(TargetType.Application),
             TargetType.Web => DefaultIcons.Web,
             _ => DefaultIcons.Unknown,
         };
+        if (item.TargetType is not (TargetType.Folder or TargetType.File or TargetType.Application))
+            return fallback;
+
+        var path = TargetResolver.Expand(item.Target ?? string.Empty);
+        var folder = item.TargetType == TargetType.Folder;
+
+        if (exists && NeedsNetworkRead(path, folder, out var placeholder))
+        {
+            pending = RunOnShellThread(() => LoadShellIcon(path, folder, exists: true));
+            return placeholder ?? fallback;
+        }
+
+        return LoadShellIcon(path, folder, exists) ?? fallback;
     }
 
     private ImageSource? LoadFromCache(string relativeFileName)
@@ -308,103 +407,111 @@ public sealed class IconService : IDisposable
     // --------------------------------------------------------------- favicon
 
     /// <summary>
-    /// Web ショートカットの favicon を取得してキャッシュし、item に反映する。
-    /// 取得できなければ何もしない（既定アイコンのまま）。
+    /// Web ショートカットのアイコンを、ブラウザが保存しているアイコンから取り出して
+    /// icons/ に保存し、item に反映する。見つからなければ何もしない（既定アイコンのまま）。
+    ///
+    /// アプリからサイトへの通信は行わない。ブラウザのファイルは必ず裏のスレッドで読み、
+    /// 画面の表示を待たせない。UI スレッドから呼ぶこと。
     /// </summary>
-    public async Task EnsureFaviconAsync(ShortcutItem item, bool force)
+    /// <param name="force">保存済みのアイコンがあっても、ブラウザから取り出し直す。</param>
+    /// <returns>アイコンを反映できたら true。</returns>
+    public async Task<bool> EnsureFaviconAsync(ShortcutItem item, bool force)
     {
-        if (item.TargetType != TargetType.Web) return;
+        if (item.TargetType != TargetType.Web) return false;
 
         // 一覧を表示するたびに呼ばれるので、URL の解析結果は項目ごとに覚えておく
         var web = GetWebTargetInfo(item);
 
         var pageUri = web.PageUri;
-        if (pageUri is null) return;
-        if (pageUri.Scheme != Uri.UriSchemeHttp && pageUri.Scheme != Uri.UriSchemeHttps) return;
+        if (pageUri is null) return false;
+        if (pageUri.Scheme != Uri.UriSchemeHttp && pageUri.Scheme != Uri.UriSchemeHttps) return false;
 
         // http と https、ポート違いは別サイトなのでオリジン単位でキャッシュする
         var origin = web.Origin;
-        if (string.IsNullOrEmpty(origin)) return;
+        if (string.IsNullOrEmpty(origin)) return false;
 
         var fileBase = web.FaviconFileBase!;
 
         if (!force)
         {
-            // すでにキャッシュがあればそれを使う
+            // すでに保存済みのアイコンがあればそれを使う
             var existing = FindCachedFavicon(fileBase);
             if (existing is not null)
             {
                 ApplyIcon(item, existing);
-                return;
+                return true;
             }
-            if (_failed.ContainsKey(origin)) return;
+            if (_failed.ContainsKey(origin)) return false;
         }
 
-        if (!_inFlight.TryAdd(origin, 0)) return;
+        if (!_settings.Current.UseBrowserIconCache) return false;
+
+        // 同じサイトを探している最中なら任せる。ただし利用者が明示的に取り直したときは、
+        // その結果を伝える必要があるので自分でも探す（読み取りは 1 件ずつなので重ならない）
+        var tracked = _inFlight.TryAdd(origin, 0);
+        if (!tracked && !force) return false;
 
         try
         {
-            await _throttle.WaitAsync().ConfigureAwait(false);
-            try
+            var saved = await FindInBrowserCacheAsync(pageUri, fileBase).ConfigureAwait(false);
+            if (saved is null)
             {
-                // サイトから直接取得したものを優先し、ブラウザのキャッシュは補助に回す。
-                //
-                // ブラウザはダークモード用のアイコン（白抜きなど）を保存していることがあり、
-                // それを採用すると明るい背景で見えなくなる。サイトが配信している既定の
-                // favicon のほうが確実なので、取得できるならそちらを使う。
-                // ブラウザのキャッシュは、bot 対策や認証で直接取得できないサイト
-                // （社内サイトなど）を救うための経路。
-                var saved = await DownloadFaviconAsync(pageUri, fileBase).ConfigureAwait(false)
-                            ?? TryBrowserCache(pageUri, fileBase);
+                _failed[origin] = 0;
+                return false;
+            }
 
-                if (saved is null)
+            var app = System.Windows.Application.Current;
+            if (app is null) return false; // 終了処理中
+
+            await app.Dispatcher.InvokeAsync(() =>
+            {
+                _memoryCache.TryRemove(saved, out _);
+                ApplyIcon(item, saved);
+
+                // 同じオリジンの他のショートカットにも反映する
+                foreach (var other in _store.Shortcuts)
                 {
-                    _failed[origin] = 0;
-                    return;
+                    if (ReferenceEquals(other, item)) continue;
+                    if (other.TargetType != TargetType.Web) continue;
+                    if (!string.IsNullOrEmpty(other.IconPath) && !other.IconPath.StartsWith("fav_", StringComparison.Ordinal))
+                        continue;
+                    if (!string.Equals(GetWebTargetInfo(other).Origin, origin, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    ApplyIcon(other, saved);
                 }
-
-                var app = System.Windows.Application.Current;
-                if (app is null) return; // 終了処理中
-
-                await app.Dispatcher.InvokeAsync(() =>
-                {
-                    _memoryCache.TryRemove(saved, out _);
-                    ApplyIcon(item, saved);
-
-                    // 同じオリジンの他のショートカットにも反映する
-                    foreach (var other in _store.Shortcuts)
-                    {
-                        if (ReferenceEquals(other, item)) continue;
-                        if (other.TargetType != TargetType.Web) continue;
-                        if (!string.IsNullOrEmpty(other.IconPath) && !other.IconPath.StartsWith("fav_", StringComparison.Ordinal))
-                            continue;
-                        if (!string.Equals(GetWebTargetInfo(other).Origin, origin, StringComparison.OrdinalIgnoreCase))
-                            continue;
-                        ApplyIcon(other, saved);
-                    }
-                });
-            }
-            finally
-            {
-                _throttle.Release();
-            }
+            });
+            return true;
         }
         catch (Exception ex)
         {
-            AppLog.Warn($"favicon の取得に失敗: {origin}", ex);
+            AppLog.Warn($"サイトのアイコンを取得できませんでした: {origin}", ex);
             _failed[origin] = 0;
+            return false;
         }
         finally
         {
-            _inFlight.TryRemove(origin, out _);
+            if (tracked) _inFlight.TryRemove(origin, out _);
+        }
+    }
+
+    /// <summary>ブラウザのアイコンキャッシュを裏のスレッドで探し、見つかれば icons/ に保存したファイル名を返す。</summary>
+    private async Task<string?> FindInBrowserCacheAsync(Uri pageUri, string fileBase)
+    {
+        await _throttle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            // ブラウザのファイルのコピーを伴うので、呼び出し元が UI スレッドでも必ず裏で行う
+            return await Task.Run(() => TryBrowserCache(pageUri, fileBase)).ConfigureAwait(false);
+        }
+        finally
+        {
+            _throttle.Release();
         }
     }
 
     /// <summary>ブラウザのアイコンキャッシュから取り出して icons/ に保存する。</summary>
     private string? TryBrowserCache(Uri pageUri, string fileBase)
     {
-        if (!_settings.Current.UseBrowserIconCache) return null;
-
         try
         {
             var found = _browserCache.TryFind(pageUri);
@@ -510,11 +617,20 @@ public sealed class IconService : IDisposable
             foreach (var delay in new[] { 5, 20 })
             {
                 await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(item.IconPath)) return;
-                if (System.Windows.Application.Current is null) return;
 
-                _failed.TryRemove(origin, out _);
-                await EnsureFaviconAsync(item, force: false).ConfigureAwait(false);
+                var app = System.Windows.Application.Current;
+                if (app is null) return; // 終了処理中
+
+                // 項目を見たり書き換えたりするのは UI スレッドで行う（ブラウザのファイルを読むのは裏）
+                var found = await app.Dispatcher.InvokeAsync(() =>
+                {
+                    if (!string.IsNullOrEmpty(item.IconPath)) return Task.FromResult(true);
+
+                    _failed.TryRemove(origin, out _);
+                    return EnsureFaviconAsync(item, force: false);
+                }).Task.Unwrap().ConfigureAwait(false);
+
+                if (found) return;
             }
         });
     }
@@ -640,173 +756,6 @@ public sealed class IconService : IDisposable
     private void ForgetIconFileList()
     {
         lock (_iconFilesGate) _iconFiles = null;
-    }
-
-    private async Task<string?> DownloadFaviconAsync(Uri pageUri, string fileBase)
-    {
-        foreach (var candidate in await CollectCandidateUrlsAsync(pageUri).ConfigureAwait(false))
-        {
-            var bytes = await TryDownloadAsync(candidate).ConfigureAwait(false);
-            if (bytes is null || bytes.Length < 16) continue;
-
-            try
-            {
-                if (SaveIconBytes(bytes, fileBase) is { } fileName) return fileName;
-            }
-            catch (Exception ex)
-            {
-                AppLog.Warn($"favicon の保存に失敗: {pageUri}", ex);
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// favicon の取得先候補を、登録された URL を起点に組み立てる。
-    ///
-    /// ホスト名だけから "https://host/" を作り直すと、http のみのサイト・
-    /// 非標準ポート・サブパスに置かれた社内システムを軒並み取りこぼすため、
-    /// 登録された URL のスキーム・ポート・パスをそのまま尊重する。
-    /// </summary>
-    private async Task<List<string>> CollectCandidateUrlsAsync(Uri pageUri)
-    {
-        var candidates = new List<string>();
-        var origin = pageUri.IsDefaultPort
-            ? $"{pageUri.Scheme}://{pageUri.Host}"
-            : $"{pageUri.Scheme}://{pageUri.Host}:{pageUri.Port}";
-
-        // 1. 登録された URL の HTML から <link rel="icon"> を探す
-        try
-        {
-            using var response = await Http.GetAsync(pageUri, HttpCompletionOption.ResponseHeadersRead)
-                .ConfigureAwait(false);
-            if (response.IsSuccessStatusCode)
-            {
-                var baseUri = response.RequestMessage?.RequestUri ?? pageUri;
-                var html = await ReadLimitedStringAsync(response, 256 * 1024).ConfigureAwait(false);
-                candidates.AddRange(ExtractIconUrls(html, baseUri));
-            }
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn($"HTML の取得に失敗: {pageUri}", ex);
-        }
-
-        // 2. サブパスに置かれたアプリ（例 https://intranet/kintai/）の直下
-        var directory = GetDirectoryUrl(pageUri);
-        if (directory is not null && !string.Equals(directory, origin + "/", StringComparison.OrdinalIgnoreCase))
-        {
-            candidates.Add(directory + "favicon.ico");
-            candidates.Add(directory + "favicon.png");
-        }
-
-        // 3. サイトのルート（定番の場所）
-        candidates.Add($"{origin}/favicon.ico");
-        candidates.Add($"{origin}/favicon.png");
-
-        // 外部のアイコン取得サービスには問い合わせない。
-        // 取得できないサイトはブラウザのキャッシュ側で拾えるため、
-        // 利用者が登録した相手以外へ通信しない作りにしている。
-
-        return candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    /// <summary>"https://host/app/page.aspx" → "https://host/app/"</summary>
-    private static string? GetDirectoryUrl(Uri uri)
-    {
-        var path = uri.AbsolutePath;
-        if (path.Length == 0) return null;
-
-        var lastSlash = path.LastIndexOf('/');
-        if (lastSlash < 0) return null;
-
-        var authority = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
-        return $"{uri.Scheme}://{authority}{path[..(lastSlash + 1)]}";
-    }
-
-    internal static List<string> ExtractIconUrls(string html, Uri baseUri)
-    {
-        var found = new List<(int Priority, int Size, string Url)>();
-
-        foreach (Match tag in LinkTagRegex.Matches(html))
-        {
-            string? rel = null, href = null, sizes = null;
-            foreach (Match attr in AttrRegex.Matches(tag.Value))
-            {
-                var name = attr.Groups["name"].Value.ToLowerInvariant();
-                var value = attr.Groups["v1"].Success ? attr.Groups["v1"].Value
-                    : attr.Groups["v2"].Success ? attr.Groups["v2"].Value
-                    : attr.Groups["v3"].Value;
-                switch (name)
-                {
-                    case "rel": rel = value.ToLowerInvariant(); break;
-                    case "href": href = value; break;
-                    case "sizes": sizes = value; break;
-                }
-            }
-
-            if (rel is null || string.IsNullOrWhiteSpace(href)) continue;
-
-            var priority = rel switch
-            {
-                var r when r.Contains("apple-touch-icon") => 0,
-                var r when r.Contains("shortcut icon") => 1,
-                var r when r.Contains("icon") => 1,
-                _ => -1,
-            };
-            if (priority < 0) continue;
-
-            var size = 0;
-            if (sizes is not null)
-            {
-                var m = Regex.Match(sizes, @"(\d+)\s*[xX]\s*(\d+)");
-                if (m.Success) int.TryParse(m.Groups[1].Value, out size);
-            }
-
-            if (Uri.TryCreate(baseUri, href.Trim(), out var abs) &&
-                (abs.Scheme == Uri.UriSchemeHttp || abs.Scheme == Uri.UriSchemeHttps))
-            {
-                found.Add((priority, size, abs.ToString()));
-            }
-        }
-
-        return found
-            .OrderBy(f => f.Priority)
-            .ThenByDescending(f => f.Size)
-            .Select(f => f.Url)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(5)
-            .ToList();
-    }
-
-    private static async Task<byte[]?> TryDownloadAsync(string url)
-    {
-        try
-        {
-            using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return null;
-            if (response.Content.Headers.ContentLength > 2 * 1024 * 1024) return null;
-            return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static async Task<string> ReadLimitedStringAsync(HttpResponseMessage response, int maxBytes)
-    {
-        await using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        var buffer = new byte[maxBytes];
-        var total = 0;
-        while (total < maxBytes)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(total, maxBytes - total)).ConfigureAwait(false);
-            if (read == 0) break;
-            total += read;
-        }
-        return Encoding.UTF8.GetString(buffer, 0, total);
     }
 
     /// <summary>マジックナンバーから画像形式を判定する（拡張子は当てにしない）。</summary>

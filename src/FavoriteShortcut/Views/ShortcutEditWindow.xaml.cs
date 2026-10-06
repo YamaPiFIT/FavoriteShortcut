@@ -31,6 +31,16 @@ public partial class ShortcutEditWindow : Window
     private readonly List<string> _temporaryIcons = new();
 
     private TargetType _detectedType = TargetType.Unknown;
+    private bool _targetExists;
+
+    /// <summary>
+    /// URL / パスの確認とアイコンのプレビューの世代。裏で確かめている間に入力が変わったら、
+    /// 古い結果は使わない。
+    /// </summary>
+    private int _targetCheck;
+    private int _previewVersion;
+
+    private readonly record struct TargetCheck(TargetType Type, string Normalized, bool Exists);
 
     /// <param name="existing">編集する既存項目。新規登録なら null。</param>
     /// <param name="defaultFolderId">新規登録時の初期フォルダ。</param>
@@ -116,26 +126,51 @@ public partial class ShortcutEditWindow : Window
         _targetTimer.Start();
     }
 
-    private void UpdateTargetInfo()
+    private async void UpdateTargetInfo()
     {
         var raw = TargetBox.Text.Trim();
-        _detectedType = TargetResolver.Detect(raw);
+        var check = ++_targetCheck;
 
         if (raw.Length == 0)
         {
+            _detectedType = TargetType.Unknown;
+            _targetExists = false;
             TargetInfoText.Text = Loc.T("Str.Edit.TargetHint");
             FetchFaviconButton.IsEnabled = false;
             UpdateIconPreview();
             return;
         }
 
-        var normalized = TargetResolver.Normalize(raw, _detectedType);
-        var exists = TargetResolver.Exists(normalized, _detectedType);
+        TargetCheck result;
+        if (TargetResolver.IsNetworkPath(TargetResolver.Expand(TargetResolver.Normalize(raw, TargetType.Unknown))))
+        {
+            // 共有フォルダはサーバーの応答を待つことがあるので、画面を止めずに裏で確かめる
+            TargetInfoText.Text = Loc.T("Str.Edit.CheckingPath");
+            try
+            {
+                result = await Task.Run(() => CheckTarget(raw));
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"パスを確認できませんでした: {raw}", ex);
+                result = new TargetCheck(TargetType.Unknown, raw, Exists: true);
+            }
+
+            if (check != _targetCheck) return; // 確かめている間に入力が変わった
+        }
+        else
+        {
+            result = CheckTarget(raw);
+        }
+
+        _detectedType = result.Type;
+        _targetExists = result.Exists;
+        var normalized = result.Normalized;
 
         var info = Loc.T("Str.Edit.TypeInfo", _detectedType.ToDisplayName());
         if (_detectedType == TargetType.Web && !string.Equals(normalized, raw, StringComparison.Ordinal))
             info += Loc.T("Str.Edit.SavedAs", normalized);
-        if (!exists)
+        if (!result.Exists)
             info += Loc.T("Str.Edit.PathMissing");
 
         TargetInfoText.Text = info;
@@ -148,9 +183,16 @@ public partial class ShortcutEditWindow : Window
         UpdateIconPreview();
     }
 
+    private static TargetCheck CheckTarget(string raw)
+    {
+        var type = TargetResolver.Detect(raw);
+        var normalized = TargetResolver.Normalize(raw, type);
+        return new TargetCheck(type, normalized, TargetResolver.Exists(normalized, type));
+    }
+
     // ------------------------------------------------------------- アイコン
 
-    private void UpdateIconPreview()
+    private async void UpdateIconPreview()
     {
         var preview = new ShortcutItem
         {
@@ -159,7 +201,8 @@ public partial class ShortcutEditWindow : Window
             IconPath = _iconPath,
         };
 
-        IconPreview.Source = _icons.ResolveSync(preview);
+        var version = ++_previewVersion;
+        IconPreview.Source = _icons.ResolvePreview(preview, _targetExists, out var pending);
 
         IconSourceText.Text = _iconPath switch
         {
@@ -173,6 +216,11 @@ public partial class ShortcutEditWindow : Window
             var p when p.StartsWith("custom_", StringComparison.Ordinal) => Loc.T("Str.Edit.IconCustom"),
             _ => Loc.T("Str.Edit.IconCached"),
         };
+
+        // 共有フォルダ上のフォルダ固有のアイコンなどは、裏で取得できたら差し替える
+        if (pending is null) return;
+        var loaded = await pending;
+        if (loaded is not null && version == _previewVersion) IconPreview.Source = loaded;
     }
 
     private void OnChooseIcon(object sender, RoutedEventArgs e)
@@ -211,9 +259,10 @@ public partial class ShortcutEditWindow : Window
 
         FetchFaviconButton.IsEnabled = false;
         FetchFaviconButton.Content = Loc.T("Str.Edit.Fetching");
+        bool found;
         try
         {
-            await _icons.EnsureFaviconAsync(probe, force: true);
+            found = await _icons.EnsureFaviconAsync(probe, force: true);
         }
         finally
         {
@@ -221,10 +270,13 @@ public partial class ShortcutEditWindow : Window
             FetchFaviconButton.IsEnabled = true;
         }
 
-        if (probe.IconPath is null)
+        if (!found || probe.IconPath is null)
         {
-            MessageBox.Show(this,
-                Loc.T("Str.Edit.FaviconFailed"), Loc.T("Str.Edit.FetchFavicon"), MessageBoxButton.OK, MessageBoxImage.Information);
+            // アイコンはブラウザが保存しているものだけを使うので、見つからない理由を案内する
+            var message = _app.Settings.Current.UseBrowserIconCache
+                ? Loc.T("Str.Edit.FaviconFailed")
+                : Loc.T("Str.Edit.BrowserIconCacheOff");
+            MessageBox.Show(this, message, Loc.T("Str.Edit.FetchFavicon"), MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 

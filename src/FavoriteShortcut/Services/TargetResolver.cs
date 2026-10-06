@@ -167,4 +167,33 @@ public static class TargetResolver
         var path = Expand(target);
         return type == TargetType.Folder ? Directory.Exists(path) : File.Exists(path);
     }
+
+    /// <summary>
+    /// UNC パス（\\server\share）またはネットワークドライブ上のパスか。
+    /// こうしたパスはサーバーの応答を待つことがあるので、画面の処理の中では読みに行かない。
+    /// </summary>
+    public static bool IsNetworkPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+
+        // \\?\ や \\.\ で始まる長いパス用の書き方は、その後ろで判断する（\\?\UNC\server\share は UNC）
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal) || path.StartsWith(@"\\.\", StringComparison.Ordinal))
+        {
+            path = path[4..];
+            if (path.StartsWith(@"UNC\", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        else if (path.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (path.Length >= 2 && path[1] == ':' && char.IsAsciiLetter(path[0]))
+        {
+            // ドライブの種類はドライブ自体に触らずに分かる
+            try { return new DriveInfo(path[..1]).DriveType == DriveType.Network; }
+            catch { return false; }
+        }
+
+        return false;
+    }
 }

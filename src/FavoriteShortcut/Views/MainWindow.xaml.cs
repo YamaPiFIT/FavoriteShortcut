@@ -664,17 +664,26 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void OnRefreshIcon(object sender, RoutedEventArgs e)
     {
+        var notFound = 0;
         foreach (var item in SelectedShortcuts())
         {
             if (item.TargetType == TargetType.Web)
             {
-                await _icons.EnsureFaviconAsync(item, force: true);
+                if (!await _icons.EnsureFaviconAsync(item, force: true)) notFound++;
             }
             else
             {
                 _icons.ClearMemoryCache();
                 _icons.Attach(item);
             }
+        }
+
+        // サイトのアイコンはブラウザが保存しているものだけを使うので、見つからなければ理由を伝える
+        if (notFound > 0)
+        {
+            StatusText.Text = _settings.Current.UseBrowserIconCache
+                ? Loc.T("Str.Main.IconNotInBrowser")
+                : Loc.T("Str.Main.BrowserIconCacheOff");
         }
     }
 

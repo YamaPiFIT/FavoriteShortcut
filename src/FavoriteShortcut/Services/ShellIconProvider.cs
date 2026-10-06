@@ -13,6 +13,9 @@ namespace FavoriteShortcut.Services;
 /// 高DPIでも粗くならないよう、まず 48px の Extra Large アイコン一覧から取得を試み、
 /// 取れない環境では SHGetFileInfo の 32px アイコンにフォールバックする。
 /// 同じ拡張子のアイコンは使い回すのでファイル数が増えても負荷は上がらない。
+///
+/// UI スレッドのほか、共有フォルダ上の実物を読むときは IconService の専用スレッド（STA）から呼ばれる。
+/// 取得結果は凍結（Freeze）してあるので、どのスレッドで取得したものでも画面に表示できる。
 /// </summary>
 internal static class ShellIconProvider
 {
@@ -29,10 +32,8 @@ internal static class ShellIconProvider
     /// </summary>
     public static ImageSource? GetFolderIcon(string? path, bool exists)
     {
-        var usable = exists && !string.IsNullOrWhiteSpace(path);
-        // 実在するフォルダは固有アイコン（デスクトップ等）を持つことがあるのでパスをキーにする
-        var key = usable ? "dir:" + path!.ToLowerInvariant() : "dir:*";
-        return GetCached(key, () => usable
+        var key = FolderKey(path, exists);
+        return GetCached(key, () => key != GenericFolderKey
             ? Load(path!, 0, useFileAttributes: false)
             : Load("C:\\", FILE_ATTRIBUTE_DIRECTORY, useFileAttributes: true));
     }
@@ -46,6 +47,49 @@ internal static class ShellIconProvider
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
 
+        var key = FileKey(path, exists);
+        if (key.StartsWith("file:", StringComparison.Ordinal))
+            return GetCached(key, () => Load(path, 0, useFileAttributes: false));
+
+        var ext = Path.GetExtension(path);
+        return GetCached(key, () => exists
+            ? Load(path, 0, useFileAttributes: false)
+            : Load("dummy" + ext, FILE_ATTRIBUTE_NORMAL, useFileAttributes: true));
+    }
+
+    /// <summary>
+    /// 実在するフォルダ / ファイルとしてのアイコンを取得済みか。
+    /// まだなら、取得するときに実物（共有フォルダならサーバー）を読みに行くことになる。
+    /// 一般的なファイルのアイコンは拡張子で決まるので、同じ拡張子を一度取得していれば済む。
+    /// </summary>
+    public static bool IsLoaded(string? path, bool folder)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return true; // 読みに行くものが無い
+
+        var key = folder ? FolderKey(path, exists: true) : FileKey(path, exists: true);
+        lock (Gate) return Cache.ContainsKey(key);
+    }
+
+    public static void ClearCache()
+    {
+        lock (Gate) Cache.Clear();
+    }
+
+    private const string GenericFolderKey = "dir:*";
+
+    /// <summary>
+    /// 実在するフォルダは固有アイコン（デスクトップ等）を持つことがあるのでパスをキーにする。
+    /// 存在しないものは共通の標準アイコン。
+    /// </summary>
+    private static string FolderKey(string? path, bool exists) =>
+        exists && !string.IsNullOrWhiteSpace(path) ? "dir:" + path.ToLowerInvariant() : GenericFolderKey;
+
+    /// <summary>
+    /// EXE / LNK / ICO などは実体ごとにアイコンが違うのでパスをキーにし、
+    /// それ以外は拡張子をキーにして使い回す。
+    /// </summary>
+    private static string FileKey(string path, bool exists)
+    {
         var ext = Path.GetExtension(path);
         var perFile = exists && ext is not null &&
                       (ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) ||
@@ -54,18 +98,9 @@ internal static class ShellIconProvider
                        ext.Equals(".msi", StringComparison.OrdinalIgnoreCase) ||
                        ext.Equals(".url", StringComparison.OrdinalIgnoreCase));
 
-        if (perFile)
-            return GetCached("file:" + path.ToLowerInvariant(), () => Load(path, 0, useFileAttributes: false));
-
-        var key = "ext:" + (string.IsNullOrEmpty(ext) ? "<none>" : ext.ToLowerInvariant());
-        return GetCached(key, () => exists
-            ? Load(path, 0, useFileAttributes: false)
-            : Load("dummy" + ext, FILE_ATTRIBUTE_NORMAL, useFileAttributes: true));
-    }
-
-    public static void ClearCache()
-    {
-        lock (Gate) Cache.Clear();
+        return perFile
+            ? "file:" + path.ToLowerInvariant()
+            : "ext:" + (string.IsNullOrEmpty(ext) ? "<none>" : ext.ToLowerInvariant());
     }
 
     private static ImageSource? GetCached(string key, Func<ImageSource?> factory)

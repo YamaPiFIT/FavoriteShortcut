@@ -37,6 +37,9 @@ public static class Program
             SettingsTests();
             TransferTests();
             RestartTests();
+
+            // アプリ本体（Application）を作るので、最後に実行する
+            FeatureTests.RunEditWindowTests();
         }
         finally
         {
