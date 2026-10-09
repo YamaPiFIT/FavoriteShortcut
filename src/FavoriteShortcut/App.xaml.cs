@@ -384,14 +384,18 @@ public partial class App : Application
             menu.Items.Insert(i, _recentTrayItems[i]);
     }
 
-    private void OpenFromTray(ShortcutItem item)
+    private async void OpenFromTray(ShortcutItem item)
     {
         // メニューを開いている間に削除された項目は開かない
         if (Store.FindShortcut(item.Id) is null) return;
 
-        var result = LaunchService.Launch(item);
+        // 開く処理は裏で行う（ネットワークの状態が悪くても、アプリが止まらないように）
+        var result = await LaunchService.LaunchAsync(item);
+        if (_shuttingDown) return;
+
         if (result.Success)
         {
+            if (Store.FindShortcut(item.Id) is null) return; // 開いている間に削除された
             Store.RecordUsage(item);
             Icons.ScheduleRecheckAfterLaunch(item);
             return;

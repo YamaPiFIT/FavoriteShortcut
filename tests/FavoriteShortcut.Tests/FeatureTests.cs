@@ -18,6 +18,7 @@ internal static class FeatureTests
         ClipboardTests();
         ThemeTests();
         NetworkWaitTests();
+        LaunchTests();
     }
 
     private static (Database Db, AppStore Store) NewStore(string fileName)
@@ -361,6 +362,70 @@ internal static class FeatureTests
                 });
             });
         }
+    }
+
+    // ------------------------------------------------------- 開く処理（v1.3.2）
+
+    /// <summary>
+    /// ショートカットを開く処理（Windows の ShellExecute）は、ネットワークの状態が悪いと
+    /// Windows 側の確認で待たされることがあるので、画面とは別のスレッドで行うことの確認。
+    /// 実際には何も開かない（存在しない場所を使うので、Windows に渡す前に止まる）。
+    /// </summary>
+    private static void LaunchTests()
+    {
+        Group("開く処理は画面を止めない（v1.3.2）");
+
+        Test("開く処理は専用のスレッド（STA）で行い、呼び出し元を待たせない", () =>
+        {
+            using var gate = new ManualResetEventSlim(false);
+            var caller = Environment.CurrentManagedThreadId;
+
+            // 呼び出し元が先に戻ってくることを確かめるため、合図があるまで処理を終わらせない
+            var task = LaunchService.RunOnStaThread(() =>
+            {
+                gate.Wait(TimeSpan.FromSeconds(30));
+                return (Thread: Environment.CurrentManagedThreadId, Apartment: Thread.CurrentThread.GetApartmentState());
+            });
+
+            AssertTrue(!task.IsCompleted, "呼び出し元はすぐに戻る");
+            gate.Set();
+            AssertTrue(task.Wait(TimeSpan.FromSeconds(30)), "処理が終わる");
+            AssertTrue(task.Result.Thread != caller, "別のスレッドで行う");
+            AssertEqual(ApartmentState.STA, task.Result.Apartment, "STA で行う");
+        });
+
+        var missing = Path.Combine(Path.GetTempPath(), "fsc-test-no-such-folder-" + Guid.NewGuid().ToString("N"));
+
+        Test("見つからないフォルダは開かずに理由を返す", () =>
+        {
+            var result = LaunchService.LaunchAsync(
+                new ShortcutItem { Title = "無い", Target = missing, TargetType = TargetType.Folder }).Result;
+            AssertTrue(!result.Success, "開かない");
+            AssertEqual(Loc.T("Str.Launch.FolderNotFound"), result.ErrorTitle, "理由");
+        });
+
+        Test("見つからないファイルは開かずに理由を返す", () =>
+        {
+            var result = LaunchService.LaunchAsync(
+                new ShortcutItem { Title = "無い", Target = Path.Combine(missing, "memo.txt"), TargetType = TargetType.File }).Result;
+            AssertTrue(!result.Success, "開かない");
+            AssertEqual(Loc.T("Str.Launch.FileNotFound"), result.ErrorTitle, "理由");
+        });
+
+        Test("場所が無いものはエクスプローラーで開かずに理由を返す", () =>
+        {
+            var result = LaunchService.RevealInExplorerAsync(
+                new ShortcutItem { Title = "無い", Target = Path.Combine(missing, "memo.txt"), TargetType = TargetType.File }).Result;
+            AssertTrue(!result.Success, "開かない");
+            AssertEqual(Loc.T("Str.Launch.LocationNotFound"), result.ErrorTitle, "理由");
+        });
+
+        Test("Web はエクスプローラーで開けないことを返す", () =>
+        {
+            var result = LaunchService.RevealInExplorerAsync(Web("例", "https://example.com/")).Result;
+            AssertTrue(!result.Success, "開かない");
+            AssertEqual(Loc.T("Str.Launch.NotSupported"), result.ErrorTitle, "理由");
+        });
     }
 
     // ------------------------------------------------------- 登録画面（v1.3.1）

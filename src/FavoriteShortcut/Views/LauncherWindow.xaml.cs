@@ -253,16 +253,20 @@ public partial class LauncherWindow : Window
         ResultList.ScrollIntoView(ResultList.SelectedItem);
     }
 
-    private void LaunchSelected()
+    private async void LaunchSelected()
     {
         if (ResultList.SelectedItem is not ShortcutItem item) return;
 
         // 先に閉じてから起動すると、開いたアプリが最前面に出て自然に見える
         HideLauncher();
 
-        var result = LaunchService.Launch(item);
+        // 開く処理は裏で行う（ネットワークの状態が悪くても、ランチャーやホットキーが止まらないように）
+        var result = await LaunchService.LaunchAsync(item);
+        if (_app.IsExiting) return;
+
         if (result.Success)
         {
+            if (_store.FindShortcut(item.Id) is null) return; // 開いている間に削除された
             _store.RecordUsage(item);
             _icons.ScheduleRecheckAfterLaunch(item);
             return;
@@ -311,13 +315,13 @@ public partial class LauncherWindow : Window
         catch (Exception ex) { AppLog.Warn("クリップボードへのコピーに失敗しました。", ex); }
     }
 
-    private void OnMenuReveal(object sender, RoutedEventArgs e)
+    private async void OnMenuReveal(object sender, RoutedEventArgs e)
     {
         if (Selected is not { } item) return;
 
         HideLauncher();
-        var result = LaunchService.RevealInExplorer(item);
-        if (!result.Success)
+        var result = await LaunchService.RevealInExplorerAsync(item);
+        if (!result.Success && !_app.IsExiting)
         {
             MessageBox.Show($"{result.ErrorTitle}\n\n{result.ErrorDetail}",
                 Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);

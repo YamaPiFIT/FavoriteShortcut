@@ -537,16 +537,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private void OpenSelected()
+    private async void OpenSelected()
     {
         var items = SelectedShortcuts();
         if (items.Count == 0) return;
 
         foreach (var item in items)
         {
-            var result = LaunchService.Launch(item);
+            // 開く処理は裏で行う（ネットワークの状態が悪くても、画面やホットキーが止まらないように）
+            var result = await LaunchService.LaunchAsync(item);
+            if (_app.IsExiting) return;
+
             if (result.Success)
             {
+                if (_store.FindShortcut(item.Id) is null) continue; // 開いている間に削除された
                 _store.RecordUsage(item);
 
                 // ブラウザで開くと favicon がブラウザ側にキャッシュされるので、
@@ -555,12 +559,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             else
             {
-                MessageBox.Show(this,
-                    $"{result.ErrorTitle}\n\n{result.ErrorDetail}\n\n" +
-                    Loc.T("Str.Launch.KeptEditHint"),
-                    Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowLaunchError($"{result.ErrorTitle}\n\n{result.ErrorDetail}\n\n" + Loc.T("Str.Launch.KeptEditHint"));
             }
         }
+    }
+
+    /// <summary>
+    /// 開けなかった理由を表示する。開く処理は裏で行うので、結果が出るまでの間に
+    /// この画面がトレイへしまわれていることもある。その場合は画面に紐付けずに表示する。
+    /// </summary>
+    private void ShowLaunchError(string message)
+    {
+        if (IsVisible)
+            MessageBox.Show(this, message, Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
+        else
+            MessageBox.Show(message, Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     private List<ShortcutItem> SelectedShortcuts() =>
@@ -650,16 +663,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private void OnRevealInExplorer(object sender, RoutedEventArgs e)
+    private async void OnRevealInExplorer(object sender, RoutedEventArgs e)
     {
         if (ShortcutList.SelectedItem is not ShortcutItem item) return;
 
-        var result = LaunchService.RevealInExplorer(item);
-        if (!result.Success)
-        {
-            MessageBox.Show(this, $"{result.ErrorTitle}\n\n{result.ErrorDetail}",
-                Loc.T("Str.App.Name"), MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        var result = await LaunchService.RevealInExplorerAsync(item);
+        if (!result.Success && !_app.IsExiting)
+            ShowLaunchError($"{result.ErrorTitle}\n\n{result.ErrorDetail}");
     }
 
     private async void OnRefreshIcon(object sender, RoutedEventArgs e)
