@@ -11,7 +11,7 @@
     <AssemblyName>FavoriteShortcut</AssemblyName>
     <RootNamespace>FavoriteShortcut</RootNamespace>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>1.3.1</Version>
+    <Version>1.3.2</Version>
     <AssemblyTitle>お気に入りショートカット</AssemblyTitle>
     <Product>お気に入りショートカット</Product>
     <Company>YamaPiFIT</Company>
