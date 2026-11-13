@@ -22,11 +22,37 @@ pub struct Gpu {
 }
 
 impl Gpu {
-    /// 最初のウィンドウに合う GPU を選んで初期化する（DirectX 12 / Vulkan / OpenGL のうち使えるもの）。
+    /// GPU を選んで初期化する。Windows 標準の DirectX 12 を優先し、使えない PC では
+    /// これまでどおり使えるもの（Vulkan / OpenGL）を自動で選ぶ。
     /// 専用の GPU が無い環境でも、Windows のソフトウェア描画（Microsoft Basic Render Driver）などが
     /// 選ばれれば動く。どれも使えなければエラーを返す（呼び出し側で知らせて終了する）。
+    ///
+    /// DirectX 12 を優先するのは、Vulkan（特に NVIDIA のドライバー）だとアプリのメモリが
+    /// 40〜70MB ほど多くなるため。環境変数 WGPU_BACKEND で指定されていれば、それだけを使う（確認用）。
     pub fn create(window: Arc<Window>) -> Result<(Self, wgpu::Surface<'static>), String> {
-        let setup = egui_wgpu::WgpuSetup::without_display_handle();
+        if let Some(backends) = wgpu::Backends::from_env() {
+            return Self::create_with(window, backends);
+        }
+        match Self::create_with(window.clone(), wgpu::Backends::DX12) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                crate::log::warn(&format!("DirectX 12 で描画を始められませんでした（{e}）。ほかの方式を試します。"));
+                Self::create_with(window, wgpu::Backends::PRIMARY | wgpu::Backends::GL)
+            }
+        }
+    }
+
+    fn create_with(window: Arc<Window>, backends: wgpu::Backends) -> Result<(Self, wgpu::Surface<'static>), String> {
+        let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+        create.instance_descriptor.backends = backends;
+        // 常駐する小さなアプリなので、省電力側の GPU（ノート PC の内蔵 GPU など）を選ぶ
+        create.power_preference = wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::LowPower);
+        // 描画の速さより、使うメモリの少なさを優先する（画面が小さく、描く量も少ないため）。
+        // 既定（速さ優先）だと、GPU 用のメモリを大きな単位でまとめて確保するので 60MB ほど多くなる
+        let base = Arc::clone(&create.device_descriptor);
+        create.device_descriptor =
+            Arc::new(move |adapter| wgpu::DeviceDescriptor { memory_hints: wgpu::MemoryHints::MemoryUsage, ..base(adapter) });
+        let setup = egui_wgpu::WgpuSetup::CreateNew(create);
         let instance = pollster::block_on(setup.new_instance());
         let surface = instance.create_surface(window).map_err(|e| e.to_string())?;
         let config = egui_wgpu::WgpuConfiguration { wgpu_setup: setup, ..Default::default() };
@@ -122,13 +148,8 @@ impl WindowHost {
     /// winit からのイベントを egui に渡す。描き直しが必要なら true。
     pub fn on_window_event(&mut self, event: &WindowEvent) -> bool {
         match event {
-            WindowEvent::Resized(size) => {
-                if size.width > 0 && size.height > 0 {
-                    self.config.width = size.width;
-                    self.config.height = size.height;
-                    // 次の描画のときに設定し直す（ここで設定すると、サイズ変更中に何度も重い処理が走る）
-                }
-            }
+            // 大きさが変わったときは、次の描画の前に描画先を作り直す（run_frame）
+            WindowEvent::Resized(_) => {}
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
             WindowEvent::Focused(false) => self.modifiers = winit::keyboard::ModifiersState::empty(),
             WindowEvent::KeyboardInput { event, is_synthetic: false, .. } if event.state.is_pressed() && !event.repeat => {
@@ -147,7 +168,7 @@ impl WindowHost {
     pub fn request_repaint(&mut self) {
         self.next_repaint = Some(Instant::now());
         // 隠しているウィンドウは描かない（表示するときに描き直す）
-        if self.window.is_visible() != Some(false) {
+        if self.is_shown() {
             self.window.request_redraw();
         }
     }
@@ -200,8 +221,11 @@ impl WindowHost {
             return FrameOutput { content_height };
         }
         if self.config.width != size.width || self.config.height != size.height {
+            // ウィンドウの大きさに合わせて描画先を作り直してから描く。古い大きさのまま描くと、
+            // DirectX 12 では引き伸ばされた絵が見えてしまう（中身に合わせて高さを変えたランチャーなど）
             self.config.width = size.width;
             self.config.height = size.height;
+            self.surface.configure(&gpu.device, &self.config);
         }
 
         let ppp = full_output.pixels_per_point;
@@ -267,6 +291,14 @@ impl WindowHost {
     fn free_textures(&mut self, delta: &egui::TexturesDelta) {
         for id in &delta.free {
             self.renderer.free_texture(id);
+        }
+    }
+
+    /// ウィンドウが表示されているか（Windows に問い合わせる。前面に出さずに表示した場合も正しく分かるように）。
+    pub fn is_shown(&self) -> bool {
+        match self.hwnd() {
+            Some(hwnd) => unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(hwnd).as_bool() },
+            None => self.window.is_visible() == Some(true),
         }
     }
 

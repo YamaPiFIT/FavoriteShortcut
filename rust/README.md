@@ -37,8 +37,10 @@ C# 版の ZIP と同じフォルダに展開しても、ファイルが上書き
 ## 動作環境
 
 - Windows 10 / 11（64 bit）
-- 画面の描画に GPU（DirectX 12 / Vulkan / OpenGL のうち使えるもの）を使います。
+- 画面の描画に GPU を使います。Windows 標準の DirectX 12 を優先し、使えない PC では Vulkan / OpenGL を使います。
   専用の GPU が無い PC でも、Windows のソフトウェア描画が使えれば動きます。
+- メモリの使用量（タスクマネージャーの「メモリ」）は、管理画面を表示して 60MB 前後、トレイに常駐しているだけなら 50MB 前後です
+  （GPU のメモリは使う量の少なさを優先し、日本語フォントのファイルは丸ごと読み込まずにメモリマップで参照しています）。
 
 ## 使い方
 
@@ -99,8 +101,9 @@ cargo test -- --ignored compat
 | `FAVORITESHORTCUT_DEV_HOTKEYS=1` | 上記のときもホットキーを登録する |
 | `FAVORITESHORTCUT_DEV_SHOW` | 起動直後に開く画面（`launcher` `settings` `bookmarks` `tags` `new` `edit` `move` `folderdelete` `text` をカンマ区切り）。見た目の確認用 |
 | `FAVORITESHORTCUT_DEV_QUIET=1` | ウィンドウを前面に出さない（確認中に、別のアプリで打っている文字を奪わないため） |
+| `WGPU_BACKEND` | 描画方式を指定する（`dx12` / `vulkan` / `gl`）。描画がおかしいときの切り分け用。こちらは常に有効です |
 
-いずれも `FAVORITESHORTCUT_DATA_DIR` を指定したときだけ有効です（普段使いの動作には影響しません）。
+`WGPU_BACKEND` 以外は、`FAVORITESHORTCUT_DATA_DIR` を指定したときだけ有効です（普段使いの動作には影響しません）。
 
 ## フォルダ構成
 

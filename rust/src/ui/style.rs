@@ -172,12 +172,25 @@ fn build_fonts() -> FontDefinitions {
 }
 
 /// フォントファイル（.ttc はコレクション）から、指定したファミリー名の書体を取り出す。
+///
+/// 日本語のフォントは 1 ファイル 10MB 以上あるので、丸ごと読み込まずにメモリマップで参照する
+/// （使う部分だけを Windows が読み、アプリのメモリとしては数えられない）。
+/// 開けなかったときだけ、ファイルを読み込んで使う。
 fn load_face(path: &std::path::Path, family: &str) -> Option<FontData> {
-    let bytes = std::fs::read(path).ok()?;
-    let count = ttf_parser::fonts_in_collection(&bytes).unwrap_or(1);
+    let blob: egui::epaint::text::Blob = match crate::platform::MappedFile::open(path) {
+        Some(file) => Arc::new(file),
+        None => Arc::new(std::fs::read(path).ok()?),
+    };
+    let index = face_index(blob.as_ref().as_ref(), family)?;
+    Some(FontData::from_blob(blob, index))
+}
+
+/// 指定したファミリー名の書体が、ファイルの何番目にあるか。
+fn face_index(bytes: &[u8], family: &str) -> Option<u32> {
+    let count = ttf_parser::fonts_in_collection(bytes).unwrap_or(1);
     let mut chosen = None;
     for index in 0..count {
-        let Ok(face) = ttf_parser::Face::parse(&bytes, index) else { continue };
+        let Ok(face) = ttf_parser::Face::parse(bytes, index) else { continue };
         let names: Vec<String> = face
             .names()
             .into_iter()
@@ -193,13 +206,11 @@ fn load_face(path: &std::path::Path, family: &str) -> Option<FontData> {
             break;
         }
     }
-    let index = match chosen {
-        Some(i) => i,
-        None if count == 1 => 0,
-        None => return None,
-    };
-    let blob: egui::epaint::text::Blob = Arc::new(bytes);
-    Some(FontData::from_blob(blob, index))
+    match chosen {
+        Some(i) => Some(i),
+        None if count == 1 => Some(0),
+        None => None,
+    }
 }
 
 /// egui の見た目を配色に合わせる。

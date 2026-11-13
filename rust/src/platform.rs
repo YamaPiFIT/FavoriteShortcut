@@ -325,6 +325,58 @@ pub fn monitor_work_area_of(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
     }
 }
 
+// ------------------------------------------------------------------ メモリマップ
+
+/// 読み取り専用でメモリマップしたファイル（フォントなど大きなファイルを、丸ごと読み込まずに参照する）。
+/// 中身は使う部分だけを Windows が読み、アプリのメモリ（プライベート）としては数えられない。
+pub struct MappedFile {
+    ptr: *const u8,
+    len: usize,
+    mapping: HANDLE,
+}
+
+// 読み取り専用のビューで、閉じるまで中身は変わらないので、スレッド間で共有してよい
+unsafe impl Send for MappedFile {}
+unsafe impl Sync for MappedFile {}
+
+impl MappedFile {
+    pub fn open(path: &std::path::Path) -> Option<Self> {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::System::Memory::{CreateFileMappingW, FILE_MAP_READ, MapViewOfFile, PAGE_READONLY};
+        let file = std::fs::File::open(path).ok()?;
+        let len = usize::try_from(file.metadata().ok()?.len()).ok()?;
+        if len == 0 {
+            return None;
+        }
+        unsafe {
+            // マッピングがファイルを参照し続けるので、ファイルのハンドルはここで閉じてよい
+            let mapping = CreateFileMappingW(HANDLE(file.as_raw_handle()), None, PAGE_READONLY, 0, 0, PCWSTR::null()).ok()?;
+            let view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+            if view.Value.is_null() {
+                let _ = CloseHandle(mapping);
+                return None;
+            }
+            Some(Self { ptr: view.Value as *const u8, len, mapping })
+        }
+    }
+}
+
+impl AsRef<[u8]> for MappedFile {
+    fn as_ref(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+impl Drop for MappedFile {
+    fn drop(&mut self) {
+        use windows::Win32::System::Memory::{MEMORY_MAPPED_VIEW_ADDRESS, UnmapViewOfFile};
+        unsafe {
+            let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: self.ptr as *mut _ });
+            let _ = CloseHandle(self.mapping);
+        }
+    }
+}
+
 // ------------------------------------------------------------------ 自動起動
 
 const RUN_KEY_PATH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -566,5 +618,32 @@ mod tests {
         assert_eq!(from_clipboard_text("hello world.com"), None);
         assert_eq!(from_clipboard_text("memo:abc"), None);
         assert_eq!(from_clipboard_text(""), None);
+    }
+
+    #[test]
+    fn mapped_file_reads_the_same_bytes_and_releases_the_file() {
+        let dir = std::env::temp_dir().join(format!("fsc-map-{}", crate::model::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("data.bin");
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &data).unwrap();
+        {
+            let mapped = MappedFile::open(&path).unwrap();
+            assert_eq!(mapped.as_ref(), &data[..]);
+        }
+        // 閉じたあとはファイルを消せる（ハンドルを残していない）
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+    }
+
+    #[test]
+    fn empty_or_missing_files_are_not_mapped() {
+        let dir = std::env::temp_dir().join(format!("fsc-map-{}", crate::model::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let empty = dir.join("empty.bin");
+        std::fs::write(&empty, b"").unwrap();
+        assert!(MappedFile::open(&empty).is_none());
+        assert!(MappedFile::open(&dir.join("missing.bin")).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -377,11 +377,11 @@ impl App {
     }
 
     fn main_hwnd(&self) -> Option<windows::Win32::Foundation::HWND> {
-        self.main.as_ref().filter(|(h, _)| h.window.is_visible() == Some(true)).and_then(|(h, _)| h.hwnd())
+        self.main.as_ref().filter(|(h, _)| h.is_shown()).and_then(|(h, _)| h.hwnd())
     }
 
     fn toggle_launcher(&mut self) {
-        let visible = self.launcher.as_ref().is_some_and(|(h, _)| h.window.is_visible() == Some(true));
+        let visible = self.launcher.as_ref().is_some_and(|(h, _)| h.is_shown());
         if visible {
             self.hide_launcher();
         } else {
@@ -414,7 +414,7 @@ impl App {
 
     fn hide_launcher(&mut self) {
         if let Some((host, state)) = self.launcher.as_mut()
-            && host.window.is_visible() == Some(true)
+            && host.is_shown()
         {
             host.window.set_visible(false);
             state.clear();
@@ -811,8 +811,7 @@ impl App {
             show_and_activate(&mut d.host);
             return;
         }
-        let main_visible =
-            self.main.as_ref().is_some_and(|(h, _)| h.window.is_visible() == Some(true) && h.window.is_minimized() != Some(true));
+        let main_visible = self.main.as_ref().is_some_and(|(h, _)| h.is_shown() && h.window.is_minimized() != Some(true));
         let folder = if main_visible { self.main.as_ref().and_then(|(_, s)| s.current_folder_id()) } else { None };
         let targets = platform::clipboard_targets();
         if targets.len() > 1 {
@@ -1362,7 +1361,7 @@ impl ApplicationHandler<UserEvent> for App {
             hosts.push(&mut d.host);
         }
         for h in hosts {
-            if h.window.is_visible() != Some(true) {
+            if !h.is_shown() {
                 continue;
             }
             if let Some(t) = h.next_repaint {
