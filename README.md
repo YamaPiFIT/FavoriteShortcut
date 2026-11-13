@@ -113,9 +113,12 @@ Web サイト・フォルダ・ファイルへのショートカットをフォ�
 |---|---|---|
 | `FavoriteShortcut.exe` | これ 1 つで動きます（約 68 MB） | **不要** |
 | `FavoriteShortcut-portable.zip` | 上記 + README をまとめた ZIP | **不要** |
+| `FavoriteShortcutRs.exe` | [Rust 版](#rust-版)。これ 1 つで動きます（約 17 MB） | **不要** |
+| `FavoriteShortcutRs-portable.zip` | 上記 + Rust 版の説明・ライセンス表記をまとめた ZIP | **不要** |
 
-どちらも中身は同じです。EXE を直接落とすほうが手軽ですが、ブラウザによっては
+EXE と ZIP は、それぞれ中身が同じです。EXE を直接落とすほうが手軽ですが、ブラウザによっては
 警告が出るので、その場合は ZIP のほうをご利用ください。
+Rust 版は、これまでの版（C# 版）と同じデータを使う、もう一つの実装です（v1.4.0 から）。
 
 > **初回起動時に「WindowsによってPCが保護されました」と表示されます。**
 > 個人で作成した未署名のアプリのため出るもので、
@@ -502,14 +505,15 @@ dotnet run --project tests\FavoriteShortcut.Tests
 C# 版と同じ機能・同じ画面構成を Rust（egui）で作り直した `FavoriteShortcutRs.exe` を
 [rust/](rust/) フォルダに同梱しています。
 
+- [リリース](https://github.com/YamaPiFIT/FavoriteShortcut/releases/latest)の `FavoriteShortcutRs.exe`
+  （または `FavoriteShortcutRs-portable.zip`）をダウンロードして使えます（v1.4.0 から）。
 - データ（SQLite のデータベース・アイコン・バックアップ・設定）は C# 版と同じ形式で、同じ保存場所を共有します。
   `FavoriteShortcut.exe` と同じフォルダに置けば、そのまま同じデータが表示されます。
 - 二重起動の防止を共有しているので、C# 版と同時には起動しません（片方を終了してから、もう片方を起動します）。
 - ビルド方法・C# 版との違いは [rust/README.md](rust/README.md) を参照してください。
 
 ```powershell
-cd rust
-cargo build --release    # rust\target\release\FavoriteShortcutRs.exe
+powershell -ExecutionPolicy Bypass -File scripts\build-rust.ps1   # build\rust\FavoriteShortcutRs.exe と ZIP
 ```
 
 ---

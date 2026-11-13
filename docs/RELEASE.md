@@ -8,14 +8,18 @@ GitHub の Releases に EXE を公開して、誰でもダウンロードでき�
 
 ## 1. バージョン番号を上げる
 
-次の 2 か所を同じ番号にします。
+次の 3 か所を同じ番号にします。
 
 - `src/FavoriteShortcut/FavoriteShortcut.csproj` の `<Version>`
 - `installer/FavoriteShortcut.iss` の `AppVersion`
+- `rust/Cargo.toml` の `version`（Rust 版）
 
 ```xml
 <Version>1.3.0</Version>
 ```
+
+Rust 版の番号を変えたら、`rust` フォルダで `cargo build` を一度実行して `rust/Cargo.lock` も更新し、
+一緒にコミットしてください（リリースのビルドは `Cargo.lock` と食い違うと止まるようにしています）。
 
 ## 2. リリースノートを書く
 
@@ -29,14 +33,18 @@ GitHub の Releases に EXE を公開して、誰でもダウンロードでき�
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Mode Both
+powershell -ExecutionPolicy Bypass -File scripts\build-rust.ps1
 ```
 
 検証プログラムが自動で実行され、失敗した場合はビルドが中止されます。成功すると次が生成されます。
+Rust 版のビルドには Rust と Visual Studio Build Tools が必要です（[rust/README.md](../rust/README.md)）。
 
 ```
 build\self-contained\FavoriteShortcut.exe        ← 配布用（約 68 MB）
 build\FavoriteShortcut-portable.zip              ← 配布用（約 62 MB）
 build\framework-dependent\FavoriteShortcut.exe   ← .NET が別途必要な版（配布はしない）
+build\rust\FavoriteShortcutRs.exe                ← 配布用・Rust 版（約 17 MB）
+build\FavoriteShortcutRs-portable.zip            ← 配布用・Rust 版
 ```
 
 ## 4. コミットしてタグを push する
@@ -58,7 +66,8 @@ git push origin v1.3.0
 https://github.com/YamaPiFIT/FavoriteShortcut/releases
 
 1. 「Draft」と表示されたリリースを開き、鉛筆アイコン（Edit）を押す
-2. 説明文と、添付の `FavoriteShortcut.exe` / `FavoriteShortcut-portable.zip` を確認する
+2. 説明文と、添付の `FavoriteShortcut.exe` / `FavoriteShortcut-portable.zip` /
+   `FavoriteShortcutRs.exe` / `FavoriteShortcutRs-portable.zip` を確認する
 3. **Publish release** を押す
 
 公開すると README のダウンロードバッジが自動で最新版を指すようになります。
@@ -84,6 +93,8 @@ https://github.com/YamaPiFIT/FavoriteShortcut/releases
 ```powershell
 Get-FileHash build\self-contained\FavoriteShortcut.exe -Algorithm SHA256
 Get-FileHash build\FavoriteShortcut-portable.zip -Algorithm SHA256
+Get-FileHash build\rust\FavoriteShortcutRs.exe -Algorithm SHA256
+Get-FileHash build\FavoriteShortcutRs-portable.zip -Algorithm SHA256
 ```
 
 ---

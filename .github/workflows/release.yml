@@ -2,7 +2,7 @@
 #
 # v1.2.3 のようなタグを push すると、GitHub 上で次を行う。
 #   1. 検証プログラム（テスト）を実行する（失敗したらここで止まり、リリースは作らない）
-#   2. 配布用の EXE とポータブル版 ZIP を作る
+#   2. 配布用の EXE とポータブル版 ZIP を作る（C# 版と Rust 版）
 #   3. docs/release-notes-<タグ>.md を本文にしたリリースを「下書き」で作り、EXE と ZIP を添付する
 #
 # 下書きは GitHub の Releases で内容を確認し、「Publish release」を押すと公開される。
@@ -35,20 +35,32 @@ jobs:
         shell: pwsh
         run: ./scripts/build.ps1 -Mode SelfContained
 
+      # Rust 版。Rust はランナーに入っているもの（rustup）を最新の stable に更新して使う。
+      # 依存ライブラリは Cargo.lock に書かれた版だけを使う（--locked）
+      - name: Rust 版のテスト、EXE と ZIP の作成
+        shell: pwsh
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          ./scripts/build-rust.ps1
+
       - name: リリースの下書きを作成
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          $exe = 'build/self-contained/FavoriteShortcut.exe'
-          $zip = 'build/FavoriteShortcut-portable.zip'
+          $files = @(
+              'build/self-contained/FavoriteShortcut.exe',
+              'build/FavoriteShortcut-portable.zip',
+              'build/rust/FavoriteShortcutRs.exe',
+              'build/FavoriteShortcutRs-portable.zip'
+          )
 
           # 添付ファイルのハッシュ値。リリースノートに <!-- SHA256 --> があればそこへ、なければ末尾に入れる
-          $hashExe = (Get-FileHash $exe -Algorithm SHA256).Hash
-          $hashZip = (Get-FileHash $zip -Algorithm SHA256).Hash
           $fence = '```'
-          $sha = "## SHA256`n`n$fence`nexe $hashExe`nzip $hashZip`n$fence`n"
+          $lines = foreach ($f in $files) { '{0}  {1}' -f (Get-FileHash $f -Algorithm SHA256).Hash, (Split-Path $f -Leaf) }
+          $sha = "## SHA256`n`n$fence`n" + ($lines -join "`n") + "`n$fence`n"
 
           $notes = "docs/release-notes-$env:TAG.md"
           $body = if (Test-Path $notes) { Get-Content $notes -Raw -Encoding utf8 } else { '' }
@@ -64,8 +76,8 @@ jobs:
           # 同じタグで実行し直したときは、添付ファイルと本文を差し替える
           gh release view $env:TAG *> $null
           if ($LASTEXITCODE -eq 0) {
-              gh release upload $env:TAG $exe $zip --clobber
+              gh release upload $env:TAG @files --clobber
               gh release edit $env:TAG --notes-file release-body.md
           } else {
-              gh release create $env:TAG $exe $zip --draft --title $env:TAG --notes-file release-body.md
+              gh release create $env:TAG @files --draft --title $env:TAG --notes-file release-body.md
           }

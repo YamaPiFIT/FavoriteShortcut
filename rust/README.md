@@ -27,6 +27,13 @@ C# 版（.NET 8 + WPF）と**同じ機能・同じ画面構成**を、Rust と [
 - **エクスポートの ZIP も同じ形式**: どちらで書き出しても、どちらでも取り込めます。
 - **時刻・ID・アイコンのファイル名なども同じ規則**で保存するので、行き来しても内容は変わりません。
 
+## 入手方法
+
+[GitHub のリリース](https://github.com/YamaPiFIT/FavoriteShortcut/releases/latest)（v1.4.0 から）で、
+`FavoriteShortcutRs.exe` または `FavoriteShortcutRs-portable.zip` をダウンロードできます。
+ZIP には、この説明（`README-Rust.md`）とライセンス表記（`THIRD-PARTY-LICENSES-Rust.md`）が入っています。
+C# 版の ZIP と同じフォルダに展開しても、ファイルが上書きし合わない名前にしています。
+
 ## 動作環境
 
 - Windows 10 / 11（64 bit）
@@ -56,12 +63,16 @@ cargo run
 ### 配布用ビルド
 
 ```powershell
-cd rust
-cargo build --release
+powershell -ExecutionPolicy Bypass -File scripts\build-rust.ps1
 ```
 
-`rust\target\release\FavoriteShortcutRs.exe` が生成されます（EXE 単体で動きます）。
+テスト（`cargo test`）と最適化ビルドを行い、`build\rust\FavoriteShortcutRs.exe` と
+`build\FavoriteShortcutRs-portable.zip` を作ります（EXE 単体で動きます）。
+`rust` フォルダで `cargo build --release` を実行しても、`rust\target\release\FavoriteShortcutRs.exe` ができます。
 C# 版と同じデータを使う場合は、この EXE を `FavoriteShortcut.exe` と同じフォルダに置いてください。
+
+リリースの作成（タグを push したとき）では、GitHub Actions が同じスクリプトで Rust 版も作り、
+C# 版と一緒にリリースへ添付します（[docs/RELEASE.md](../docs/RELEASE.md)）。
 
 ### テスト
 
