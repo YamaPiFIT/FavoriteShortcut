@@ -1,0 +1,3 @@
+# 1 行を長めにして、画面の組み立て（入れ子の多いクロージャ）を読みやすく保つ
+max_width = 140
+use_small_heuristics = "Max"

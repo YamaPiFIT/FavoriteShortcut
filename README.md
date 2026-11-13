@@ -40,6 +40,7 @@ Web サイト・フォルダ・ファイルへのショートカットをフォ�
 - [別の PC へ移す（エクスポート / インポート）](#別の-pc-へ移すエクスポート--インポート)
 - [ビルド方法（開発者向け）](#ビルド方法開発者向け)
 - [テスト](#テスト)
+- [Rust 版](#rust-版)
 - [技術選定とその理由](#技術選定とその理由)
 - [設計メモ](#設計メモ)
 - [既知の制限](#既知の制限)
@@ -405,6 +406,7 @@ FavoriteShortcut/
 │   ├── Themes/                  配色と共通スタイル
 │   └── Assets/                  アプリアイコン
 ├── tests/FavoriteShortcut.Tests/ 検証プログラム
+├── rust/                        Rust 版（同じデータを使う、もう一つの実装）
 ├── scripts/                     ビルド用スクリプト
 ├── installer/                   Inno Setup 用スクリプト
 ├── build/                       ビルド成果物（生成物）
@@ -492,6 +494,23 @@ dotnet run --project tests\FavoriteShortcut.Tests
 - グローバルホットキーが他アプリ使用中に反応すること
 - エクスプローラーからのドラッグ＆ドロップ
 - マルチモニター環境でのランチャー表示位置
+
+---
+
+## Rust 版
+
+C# 版と同じ機能・同じ画面構成を Rust（egui）で作り直した `FavoriteShortcutRs.exe` を
+[rust/](rust/) フォルダに同梱しています。
+
+- データ（SQLite のデータベース・アイコン・バックアップ・設定）は C# 版と同じ形式で、同じ保存場所を共有します。
+  `FavoriteShortcut.exe` と同じフォルダに置けば、そのまま同じデータが表示されます。
+- 二重起動の防止を共有しているので、C# 版と同時には起動しません（片方を終了してから、もう片方を起動します）。
+- ビルド方法・C# 版との違いは [rust/README.md](rust/README.md) を参照してください。
+
+```powershell
+cd rust
+cargo build --release    # rust\target\release\FavoriteShortcutRs.exe
+```
 
 ---
 
@@ -740,6 +759,7 @@ DB の形式（スキーマ）は変えていないため、以前のバージ�
 
 このアプリに同梱している第三者ソフトウェア（.NET ランタイム、SQLite など）の
 ライセンス表記は [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) にまとめています。
+Rust 版が組み込んでいるライブラリのライセンスは [rust/THIRD-PARTY-LICENSES.md](rust/THIRD-PARTY-LICENSES.md) にあります。
 いずれも MIT / Apache-2.0 / パブリックドメインで、再配布に制限はありません。
 
 ### 免責

@@ -94,11 +94,21 @@ notice, here is a blessing:
 
 ---
 
+## Rust 版（`FavoriteShortcutRs.exe`）
+
+Rust 版に組み込まれるライブラリ（egui・winit・wgpu・rusqlite（SQLite を同梱）・windows-rs など）と、
+egui に組み込まれているフォントのライセンス表記は
+[rust/THIRD-PARTY-LICENSES.md](rust/THIRD-PARTY-LICENSES.md) にまとめています。
+いずれも MIT / Apache-2.0 / SIL Open Font License などの、再配布が許可されたライセンスです。
+
+---
+
 ## アプリケーションアイコン
 
 `src/FavoriteShortcut/Assets/app.ico` および
 `src/FavoriteShortcut/Services/DefaultIcons.cs` のベクターアイコンは、
 本プロジェクトのために作成したオリジナルで、本体と同じ MIT License が適用されます。
+Rust 版の `rust/assets/app.ico` と既定のアイコン（`rust/src/ui/widgets.rs`）も同じものです。
 
 なお、ショートカットに表示される favicon やファイルアイコンは、
 利用者の環境で実行時に取得・キャッシュされるものであり、

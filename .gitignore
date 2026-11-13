@@ -3,6 +3,7 @@ bin/
 obj/
 build/
 installer/*.exe
+rust/target/
 
 # Visual Studio / Rider
 .vs/
